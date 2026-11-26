@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  commits:
+    name: commit messages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Check Conventional Commits
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            base=$PR_BASE
+          elif [ "$PUSH_BEFORE" = 0000000000000000000000000000000000000000 ]; then
+            # New branch: check the commits not yet on the default branch.
+            if [ "$BRANCH" = "$DEFAULT_BRANCH" ]; then
+              echo "new default branch: cannot determine which commits to check" >&2
+              exit 1
+            fi
+            base=origin/$DEFAULT_BRANCH
+          else
+            # The previous tip may be missing after a force-push; try to fetch it by SHA.
+            git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null ||
+              git fetch --quiet --no-tags origin "$PUSH_BEFORE" || true
+            if ! git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+              echo "previous tip $PUSH_BEFORE is unreachable: cannot determine which commits to check" >&2
+              exit 1
+            fi
+            base=$PUSH_BEFORE
+          fi
+          scripts/check-commits.sh "$base" HEAD
+
+  check:
+    name: lint, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        id: setup-go
+        with:
+          # Uses the toolchain line in go.mod, the same Go version local runs switch to.
+          go-version-file: go.mod
+      - uses: actions/cache@v4
+        with:
+          path: bin
+          # Tools are rebuilt when the Go version, runner platform or pinned tool versions change.
+          key: tools-${{ runner.os }}-${{ runner.arch }}-go${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('Makefile') }}
+      - run: make lint
+      - run: make test
+      - run: make build
