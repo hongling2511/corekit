@@ -513,3 +513,122 @@ func TestRedactedPrintsSliceViewsThatShareStorage(t *testing.T) {
 
 	assert.Equal(t, []any{"visible", []any{"visible"}}, got["items"])
 }
+
+type sharedKeyOptions struct {
+	A string `mapstructure:"token" secret:"true"`
+	B string `mapstructure:"token"`
+}
+
+func (o *sharedKeyOptions) AddFlags(*pflag.FlagSet) {}
+func (o *sharedKeyOptions) Complete() error         { return nil }
+func (o *sharedKeyOptions) Validate() error         { return nil }
+
+func TestRedactedSecretWinsOnSharedKey(t *testing.T) {
+	got := config.Redacted(&sharedKeyOptions{A: "s3cr3t", B: "s3cr3t"})
+
+	assert.Equal(t, map[string]any{"token": "******"}, got)
+}
+
+type ptrSquashOptions struct {
+	*BaseOptions `mapstructure:",squash"`
+}
+
+func (o *ptrSquashOptions) AddFlags(*pflag.FlagSet) {}
+func (o *ptrSquashOptions) Complete() error         { return nil }
+func (o *ptrSquashOptions) Validate() error         { return nil }
+
+type remainOptions struct {
+	Name string         `mapstructure:"name"`
+	Rest map[string]any `mapstructure:",remain"`
+}
+
+func (o *remainOptions) AddFlags(*pflag.FlagSet) {}
+func (o *remainOptions) Complete() error         { return nil }
+func (o *remainOptions) Validate() error         { return nil }
+
+func TestLoadRejectsUnsupportedOptionShapes(t *testing.T) {
+	tests := []struct {
+		desc string
+		opts config.Options
+		want string
+	}{
+		{"two fields share a key", &sharedKeyOptions{}, "token"},
+		{"squash on a pointer", &ptrSquashOptions{BaseOptions: &BaseOptions{}}, "squash"},
+		{"remain", &remainOptions{}, "remain"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			err := load(t, tt.opts, "")
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+		})
+	}
+}
+
+type deepOptions struct {
+	Server **serverOptions `mapstructure:"server"`
+	Block  *secretBlock    `mapstructure:"block"`
+	Items  []item          `mapstructure:"items"`
+	Log    struct {
+		Level string `mapstructure:"level"`
+	} `mapstructure:"log"`
+	Pairs []map[string]string `mapstructure:"pairs"`
+	Lab   map[string]string   `mapstructure:"lab"`
+}
+
+type secretBlock struct {
+	Port  int    `mapstructure:"port"`
+	Token string `mapstructure:"token" secret:"true"`
+}
+
+func (o *deepOptions) AddFlags(*pflag.FlagSet) {}
+func (o *deepOptions) Complete() error         { return nil }
+func (o *deepOptions) Validate() error         { return nil }
+
+func TestRedactedDoublePointerBlock(t *testing.T) {
+	inner := &serverOptions{Port: 9}
+	opts := &deepOptions{Server: &inner, Block: &secretBlock{Port: 1, Token: "tok"}}
+
+	got := config.Redacted(opts)
+
+	assert.Equal(t, map[string]any{"port": int64(9)}, got["server"])
+	assert.Equal(t, int64(1), got["block.port"])
+	assert.Equal(t, "******", got["block.token"])
+}
+
+func TestLoadFileKeyTreeEdgeCases(t *testing.T) {
+	tests := []struct {
+		desc, file, wantErr string
+	}{
+		{desc: "non-string key does not hide a typo", file: "log:\n  1: x\n  leve1: debug\n", wantErr: "log.leve1"},
+		{desc: "map given for a list is checked", file: "items:\n  name: x\n  typo: y\n", wantErr: "items.typo"},
+		{desc: "dotted map entry name is reported", file: "lab:\n  app.io/name: x\n", wantErr: "lab.app.io/name"},
+		{desc: "case variants of one key", file: "log:\n  level: debug\nLOG.LEVEL: warn\n", wantErr: "log.level"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			err := load(t, &deepOptions{}, writeFile(t, "config.yaml", tt.file))
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestLoadKeepsDottedKeysInsideListElements(t *testing.T) {
+	opts := &deepOptions{}
+
+	require.NoError(t, load(t, opts, writeFile(t, "config.yaml", "pairs:\n  - a.b: v\n")))
+
+	assert.Equal(t, []map[string]string{{"a.b": "v"}}, opts.Pairs)
+}
+
+func TestLoadAppliesEnvToPointerBlocks(t *testing.T) {
+	t.Setenv("TEST_BLOCK_PORT", "7")
+	opts := &deepOptions{Block: &secretBlock{Port: 1}}
+
+	require.NoError(t, load(t, opts, ""))
+
+	assert.Equal(t, 7, opts.Block.Port)
+}

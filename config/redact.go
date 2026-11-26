@@ -69,11 +69,13 @@ func (r redactor) flatten(v reflect.Value, prefix string, out map[string]any) {
 		key := prefix + f.key
 		fv := v.FieldByIndex(f.index)
 		switch {
+		case out[key] == redacted:
+			// Another field with this key is secret; the secret wins.
 		case f.secret && !fv.IsZero():
 			out[key] = redacted
-		case fv.Kind() == reflect.Struct && isBlock(f.typ):
+		case isBlock(f.typ):
 			r.flatten(fv, key+".", out)
-		case fv.Kind() == reflect.Pointer && !fv.IsNil() && isBlock(f.typ):
+		case isBlockPointer(f.typ) && !fv.IsNil():
 			mark, ok := r.enter(fv)
 			if !ok {
 				out[key] = cycle
@@ -123,11 +125,14 @@ func (r redactor) project(v reflect.Value) any {
 		m := map[string]any{}
 		for _, f := range structFields(v.Type()) {
 			fv := v.FieldByIndex(f.index)
-			if f.secret && !fv.IsZero() {
+			switch {
+			case m[f.key] == redacted:
+				// Another field with this key is secret; the secret wins.
+			case f.secret && !fv.IsZero():
 				m[f.key] = redacted
-				continue
+			default:
+				m[f.key] = r.project(fv)
 			}
-			m[f.key] = r.project(fv)
 		}
 		return m
 	default:

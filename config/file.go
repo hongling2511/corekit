@@ -33,34 +33,47 @@ func readFile(ctx context.Context, v *viper.Viper, path string, t reflect.Type) 
 	if err := dec.Decode(b, raw); err != nil {
 		return fmt.Errorf("read config file %s: %w", path, err)
 	}
-	tree, err := expand(raw, "")
+	expanded, err := expand(raw, "", false)
 	if err != nil {
 		return fmt.Errorf("config file %s: %w", path, err)
 	}
+	tree := expanded.(map[string]any) // expand keeps a map a map
 	if unknown := checkTree(tree, t, ""); len(unknown) > 0 {
 		slices.Sort(unknown)
 		return fmt.Errorf("config file %s: unknown keys: %s", path, strings.Join(unknown, ", "))
 	}
-	if err := v.MergeConfigMap(tree.(map[string]any)); err != nil {
+	if err := v.MergeConfigMap(tree); err != nil {
 		return fmt.Errorf("config file %s: %w", path, err)
 	}
 	return nil
 }
 
-// expand returns raw with every dotted map key split into nested maps, also
-// inside lists. Keys are lower-cased, as viper treats them. A key set twice
-// (server.port and server: {port}) is an error.
-func expand(raw any, path string) (any, error) {
+// expand returns raw as viper will load it: keys lower-cased, maps with
+// non-string keys turned into string-keyed maps, and every dotted key of a
+// map outside lists split into nested maps (so a map entry name cannot
+// contain "."). Inside list elements keys are kept whole, as viper keeps them.
+// A key set twice (server.port and server: {port}, or Port and port) is an
+// error.
+func expand(raw any, path string, inList bool) (any, error) {
 	switch raw := raw.(type) {
+	case map[any]any:
+		m := make(map[string]any, len(raw))
+		for k, val := range raw {
+			m[fmt.Sprint(k)] = val
+		}
+		return expand(m, path, inList)
 	case map[string]any:
 		out := map[string]any{}
 		for k, val := range raw {
-			parts := strings.Split(strings.ToLower(k), ".")
+			parts := []string{strings.ToLower(k)}
+			if !inList {
+				parts = strings.Split(parts[0], ".")
+			}
 			// Wrap val in maps for all but the first part of the key.
 			for i := len(parts) - 1; i > 0; i-- {
 				val = map[string]any{parts[i]: val}
 			}
-			val, err := expand(val, path+parts[0]+".")
+			val, err := expand(val, path+parts[0]+".", inList)
 			if err != nil {
 				return nil, err
 			}
@@ -73,7 +86,7 @@ func expand(raw any, path string) (any, error) {
 		out := make([]any, len(raw))
 		for i, val := range raw {
 			var err error
-			if out[i], err = expand(val, path+strconv.Itoa(i)+"."); err != nil {
+			if out[i], err = expand(val, path+strconv.Itoa(i)+".", true); err != nil {
 				return nil, err
 			}
 		}
@@ -109,7 +122,9 @@ func merge(dst map[string]any, key string, val any, path string) error {
 // field takes no keys below it. Interface fields take anything; other shape
 // mismatches are left to the decoder.
 func checkTree(tree any, t reflect.Type, path string) []string {
-	t = derefType(t)
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
 	m, isMap := tree.(map[string]any)
 	switch t.Kind() {
 	case reflect.Interface:
@@ -120,7 +135,7 @@ func checkTree(tree any, t reflect.Type, path string) []string {
 		}
 		byKey := map[string]field{}
 		for _, f := range structFields(t) {
-			byKey[strings.ToLower(f.key)] = f
+			byKey[f.key] = f
 		}
 		var unknown []string
 		for k, val := range m {
@@ -139,6 +154,9 @@ func checkTree(tree any, t reflect.Type, path string) []string {
 		}
 		return unknown
 	case reflect.Slice, reflect.Array:
+		if isMap { // decoded as a one-element list
+			return checkTree(m, t.Elem(), path)
+		}
 		list, _ := tree.([]any)
 		var unknown []string
 		for i, val := range list {

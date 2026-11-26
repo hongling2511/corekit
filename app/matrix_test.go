@@ -84,6 +84,10 @@ type pointer[P any] struct {
 	X *P `mapstructure:"x"`
 }
 
+type pointer2[P any] struct {
+	X **P `mapstructure:"x"`
+}
+
 type slice[P any] struct {
 	X []P `mapstructure:"x"`
 }
@@ -144,6 +148,7 @@ func containers[P any](placement string, p P) []matrixRow {
 	return []matrixRow{
 		{placement + "/direct", runCase(direct[P]{X: p})},
 		{placement + "/pointer", runCase(pointer[P]{X: &p})},
+		{placement + "/pointer-to-pointer", runCase(pointer2[P]{X: ptrTo(&p)})},
 		{placement + "/slice", runCase(slice[P]{X: []P{p}})},
 		{placement + "/array", runCase(array[P]{X: [1]P{p}})},
 		{placement + "/map", runCase(mapOf[P]{X: map[string]P{"k": p}})},
@@ -151,6 +156,8 @@ func containers[P any](placement string, p P) []matrixRow {
 		{placement + "/map-of-interface", runCase(mapOfAny{X: map[string]any{"k": p}})},
 	}
 }
+
+func ptrTo[T any](v T) *T { return &v }
 
 func TestRedactionMatrixInBothOutputs(t *testing.T) {
 	secretInner := Inner{Value: "SECRET-value", More: "SECRET-more"}

@@ -42,6 +42,9 @@ func Load(ctx context.Context, opts Options, src Source) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := checkType(reflect.TypeOf(opts)); err != nil {
+		return err
+	}
 	v := viper.New()
 	for key, value := range defaults(opts) {
 		v.SetDefault(key, value)
@@ -75,22 +78,29 @@ func Load(ctx context.Context, opts Options, src Source) error {
 }
 
 // defaults flattens opts (a pointer to a struct) into dotted keys and the
-// values it holds, the lowest-precedence source.
+// values it holds, the lowest-precedence source. Blocks, also behind a
+// non-nil pointer, flatten further, so environment variables reach their
+// fields; a nil pointer block is one key.
 func defaults(opts any) map[string]any {
 	out := map[string]any{}
 	if v := reflect.Indirect(reflect.ValueOf(opts)); v.Kind() == reflect.Struct {
-		walkDefaults(v, "", out)
+		walkDefaults(v, "", out, map[uintptr]bool{})
 	}
 	return out
 }
 
-func walkDefaults(v reflect.Value, prefix string, out map[string]any) {
+func walkDefaults(v reflect.Value, prefix string, out map[string]any, onPath map[uintptr]bool) {
 	for _, f := range structFields(v.Type()) {
 		fv := v.FieldByIndex(f.index)
-		if fv.Kind() == reflect.Struct && isBlock(f.typ) {
-			walkDefaults(fv, prefix+f.key+".", out)
-			continue
+		switch {
+		case isBlock(f.typ):
+			walkDefaults(fv, prefix+f.key+".", out, onPath)
+		case isBlockPointer(f.typ) && !fv.IsNil() && !onPath[fv.Pointer()]:
+			onPath[fv.Pointer()] = true
+			walkDefaults(fv.Elem(), prefix+f.key+".", out, onPath)
+			delete(onPath, fv.Pointer())
+		default:
+			out[prefix+f.key] = fv.Interface()
 		}
-		out[prefix+f.key] = fv.Interface()
 	}
 }
