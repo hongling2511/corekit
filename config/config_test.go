@@ -408,3 +408,40 @@ func TestLoadAcceptsDynamicMapEntries(t *testing.T) {
 		Labels: map[string]string{"team": "core"},
 	}, opts)
 }
+
+func TestLoadAcceptsDottedKeysInFile(t *testing.T) {
+	opts := newTestOptions()
+
+	require.NoError(t, load(t, opts, writeFile(t, "config.yaml", "server.port: 5\n")))
+	assert.Equal(t, 5, opts.Server.Port)
+
+	err := load(t, newTestOptions(), writeFile(t, "config.yaml", "server.prot: 5\n"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "server.prot")
+}
+
+type BaseOptions struct {
+	Name   string `mapstructure:"name"`
+	Secret string `mapstructure:"secret" secret:"true"`
+}
+
+type squashOptions struct {
+	BaseOptions `mapstructure:",squash"`
+	Port        int `mapstructure:"port"`
+}
+
+func (o *squashOptions) AddFlags(*pflag.FlagSet) {}
+func (o *squashOptions) Complete() error         { return nil }
+func (o *squashOptions) Validate() error         { return nil }
+
+func TestSquashedFieldsUseTheParentKeys(t *testing.T) {
+	opts := &squashOptions{}
+
+	require.NoError(t, load(t, opts, writeFile(t, "config.yaml", "name: x\nsecret: s\nport: 1\n")))
+
+	assert.Equal(t, "x", opts.Name)
+	assert.Equal(t, map[string]any{"name": "x", "secret": "******", "port": int64(1)}, config.Redacted(opts))
+	err := load(t, &squashOptions{}, writeFile(t, "config.yaml", "baseoptions:\n  name: x\n"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "baseoptions")
+}

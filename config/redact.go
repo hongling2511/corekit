@@ -66,13 +66,13 @@ func (r redactor) flatten(v reflect.Value, prefix string, out map[string]any) {
 		case fv.Kind() == reflect.Struct && hasFields(fv):
 			r.flatten(fv, key+".", out)
 		case fv.Kind() == reflect.Pointer && !fv.IsNil() && fv.Elem().Kind() == reflect.Struct && hasFields(fv.Elem()):
-			visit, ok := r.enter(fv)
+			mark, ok := r.enter(fv)
 			if !ok {
 				out[key] = cycle
 				continue
 			}
 			r.flatten(fv.Elem(), key+".", out)
-			r.leave(visit)
+			r.leave(mark)
 		default:
 			out[key] = r.project(fv)
 		}
@@ -93,11 +93,11 @@ func (r redactor) project(v reflect.Value) any {
 		if v.IsNil() {
 			return nil
 		}
-		visit, ok := r.enter(v)
+		mark, ok := r.enter(v)
 		if !ok {
 			return cycle
 		}
-		defer r.leave(visit)
+		defer r.leave(mark)
 		return r.projectRef(v)
 	case reflect.Array:
 		return r.projectList(v)
@@ -168,17 +168,11 @@ func basic(v reflect.Value) (any, bool) {
 	return nil, false
 }
 
-// fields yields the configuration fields of struct v: exported and not
-// tagged mapstructure:"-".
+// fields yields the configuration fields of struct v (see configFields).
 func fields(v reflect.Value) func(yield func(reflect.StructField, reflect.Value) bool) {
 	return func(yield func(reflect.StructField, reflect.Value) bool) {
-		t := v.Type()
-		for i := range t.NumField() {
-			f := t.Field(i)
-			if !f.IsExported() || tagName(f) == "-" {
-				continue
-			}
-			if !yield(f, v.Field(i)) {
+		for _, f := range configFields(v.Type()) {
+			if !yield(f, v.FieldByIndex(f.Index)) {
 				return
 			}
 		}

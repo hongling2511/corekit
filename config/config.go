@@ -124,18 +124,23 @@ func checkTree(raw any, t reflect.Type, path string, unknown *[]string) {
 			return
 		}
 		fieldTypes := map[string]reflect.Type{}
-		for i := range t.NumField() {
-			if f := t.Field(i); f.IsExported() && tagName(f) != "-" {
-				fieldTypes[strings.ToLower(tagName(f))] = f.Type
-			}
+		for _, f := range configFields(t) {
+			fieldTypes[strings.ToLower(tagName(f))] = f.Type
 		}
 		for k, val := range m {
-			ft, ok := fieldTypes[strings.ToLower(k)]
-			if !ok {
+			// A dotted key (server.port: 5) names a nested field.
+			first, rest, dotted := strings.Cut(k, ".")
+			ft, ok := fieldTypes[strings.ToLower(first)]
+			switch {
+			case !ok && dotted:
+				*unknown = append(*unknown, path+first)
+			case !ok:
 				*unknown = append(*unknown, path+k)
-				continue
+			case dotted:
+				checkTree(map[string]any{rest: val}, ft, path+first+".", unknown)
+			default:
+				checkTree(val, ft, path+k+".", unknown)
 			}
-			checkTree(val, ft, path+k+".", unknown)
 		}
 	case reflect.Map:
 		if m, ok := raw.(map[string]any); ok {
@@ -171,6 +176,33 @@ func walkDefaults(v reflect.Value, prefix string, out map[string]any) {
 		}
 		out[key] = fv.Interface()
 	}
+}
+
+// configFields returns the configuration fields of struct type t: exported,
+// not tagged mapstructure:"-", with the fields of a struct tagged ",squash"
+// in place of that struct. Each field's Index is its path from t.
+func configFields(t reflect.Type) []reflect.StructField {
+	var out []reflect.StructField
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if !f.IsExported() || tagName(f) == "-" {
+			continue
+		}
+		if isSquash(f) && f.Type.Kind() == reflect.Struct {
+			for _, inner := range configFields(f.Type) {
+				inner.Index = append([]int{i}, inner.Index...)
+				out = append(out, inner)
+			}
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+func isSquash(f reflect.StructField) bool {
+	_, opts, _ := strings.Cut(f.Tag.Get("mapstructure"), ",")
+	return slices.Contains(strings.Split(opts, ","), "squash")
 }
 
 // tagName returns a field's key from its mapstructure tag, or the lower-cased
