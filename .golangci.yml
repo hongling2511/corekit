@@ -6,18 +6,16 @@ linters:
   settings:
     depguard:
       # Layering: role -> capability -> foundation. Imports only point downward;
-      # packages in the same role or capability layer do not import each other.
+      # packages in the same layer do not import each other (only app assembles
+      # the other foundation packages).
       # File globs are anchored to this config file's directory (the module root).
       # A trailing "$" makes an entry an exact match; a trailing "/" admits subpackages.
       rules:
-        # Standalone foundation packages: stdlib, cobra/pflag/viper, each other; never app.
-        foundation:
+        # config: stdlib, exactly cobra/pflag/viper, and its own package tree; no other corekit package.
+        foundation-config:
           list-mode: strict
           files:
             - "${config-path}/config/**"
-            - "${config-path}/log/**"
-            - "${config-path}/errx/**"
-            - "${config-path}/version/**"
             - "!$test"
           allow:
             - $gostd
@@ -26,20 +24,11 @@ linters:
             - github.com/spf13/viper$
             - github.com/hongling2511/corekit/config$
             - github.com/hongling2511/corekit/config/
-            - github.com/hongling2511/corekit/log$
-            - github.com/hongling2511/corekit/log/
-            - github.com/hongling2511/corekit/errx$
-            - github.com/hongling2511/corekit/errx/
-            - github.com/hongling2511/corekit/version$
-            - github.com/hongling2511/corekit/version/
-        # Their tests: the same plus testify; still never app, so each stays usable on its own.
-        foundation-test:
+        # config tests: the same plus testify subpackages.
+        foundation-config-test:
           list-mode: strict
           files:
             - "${config-path}/config/**_test.go"
-            - "${config-path}/log/**_test.go"
-            - "${config-path}/errx/**_test.go"
-            - "${config-path}/version/**_test.go"
           allow:
             - $gostd
             - github.com/spf13/cobra$
@@ -48,13 +37,85 @@ linters:
             - github.com/stretchr/testify/
             - github.com/hongling2511/corekit/config$
             - github.com/hongling2511/corekit/config/
+        # log: stdlib, exactly cobra/pflag/viper, and its own package tree; no other corekit package.
+        foundation-log:
+          list-mode: strict
+          files:
+            - "${config-path}/log/**"
+            - "!$test"
+          allow:
+            - $gostd
+            - github.com/spf13/cobra$
+            - github.com/spf13/pflag$
+            - github.com/spf13/viper$
             - github.com/hongling2511/corekit/log$
             - github.com/hongling2511/corekit/log/
+        # log tests: the same plus testify subpackages.
+        foundation-log-test:
+          list-mode: strict
+          files:
+            - "${config-path}/log/**_test.go"
+          allow:
+            - $gostd
+            - github.com/spf13/cobra$
+            - github.com/spf13/pflag$
+            - github.com/spf13/viper$
+            - github.com/stretchr/testify/
+            - github.com/hongling2511/corekit/log$
+            - github.com/hongling2511/corekit/log/
+        # errx: stdlib, exactly cobra/pflag/viper, and its own package tree; no other corekit package.
+        foundation-errx:
+          list-mode: strict
+          files:
+            - "${config-path}/errx/**"
+            - "!$test"
+          allow:
+            - $gostd
+            - github.com/spf13/cobra$
+            - github.com/spf13/pflag$
+            - github.com/spf13/viper$
             - github.com/hongling2511/corekit/errx$
             - github.com/hongling2511/corekit/errx/
+        # errx tests: the same plus testify subpackages.
+        foundation-errx-test:
+          list-mode: strict
+          files:
+            - "${config-path}/errx/**_test.go"
+          allow:
+            - $gostd
+            - github.com/spf13/cobra$
+            - github.com/spf13/pflag$
+            - github.com/spf13/viper$
+            - github.com/stretchr/testify/
+            - github.com/hongling2511/corekit/errx$
+            - github.com/hongling2511/corekit/errx/
+        # version: stdlib, exactly cobra/pflag/viper, and its own package tree; no other corekit package.
+        foundation-version:
+          list-mode: strict
+          files:
+            - "${config-path}/version/**"
+            - "!$test"
+          allow:
+            - $gostd
+            - github.com/spf13/cobra$
+            - github.com/spf13/pflag$
+            - github.com/spf13/viper$
             - github.com/hongling2511/corekit/version$
             - github.com/hongling2511/corekit/version/
-        # app (the start-up pipeline) may also use the standalone foundation packages.
+        # version tests: the same plus testify subpackages.
+        foundation-version-test:
+          list-mode: strict
+          files:
+            - "${config-path}/version/**_test.go"
+          allow:
+            - $gostd
+            - github.com/spf13/cobra$
+            - github.com/spf13/pflag$
+            - github.com/spf13/viper$
+            - github.com/stretchr/testify/
+            - github.com/hongling2511/corekit/version$
+            - github.com/hongling2511/corekit/version/
+        # app (the start-up pipeline) assembles the four standalone foundation packages.
         app:
           list-mode: strict
           files:
@@ -75,7 +136,7 @@ linters:
             - github.com/hongling2511/corekit/errx/
             - github.com/hongling2511/corekit/version$
             - github.com/hongling2511/corekit/version/
-        # app's tests: the same plus testify.
+        # app's tests: the same plus testify subpackages.
         app-test:
           list-mode: strict
           files:
