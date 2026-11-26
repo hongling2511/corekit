@@ -165,7 +165,7 @@ func TestRedactedHidesSecretsAndFlattensKeys(t *testing.T) {
 		"user":        "alice",
 		"password":    "******",
 		"empty":       "",
-		"server.port": 8080,
+		"server.port": int64(8080),
 	}, got)
 }
 
@@ -263,4 +263,148 @@ func TestLoadStopsWhenContextIsDone(t *testing.T) {
 	err := config.Load(ctx, opts, config.Source{EnvPrefix: "TEST"})
 
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+// textCreds formats itself as text, including its secret; Redacted must not
+// trust that text.
+type textCreds struct {
+	User     string `mapstructure:"user"`
+	Password string `mapstructure:"password" secret:"true"`
+}
+
+func (c textCreds) MarshalText() ([]byte, error) { return []byte(c.User + ":" + c.Password), nil }
+
+// loudName is a plain field whose type formats itself; Redacted prints the
+// underlying value only.
+type loudName string
+
+func (n loudName) MarshalJSON() ([]byte, error) { return []byte(`"leak"`), nil }
+func (n loudName) String() string               { return "leak" }
+
+type keyed struct {
+	ID    string `mapstructure:"id"`
+	Token string `mapstructure:"token" secret:"true"`
+}
+
+type opaque struct{ hidden string }
+
+type trickyOptions struct {
+	Text    textCreds        `mapstructure:"text"`
+	TextPtr *textCreds       `mapstructure:"text_ptr"`
+	Name    loudName         `mapstructure:"name"`
+	ByKey   map[keyed]string `mapstructure:"by_key"`
+	Opaque  opaque           `mapstructure:"opaque"`
+	Counts  map[loudName]int `mapstructure:"counts"`
+	Texts   []textCreds      `mapstructure:"texts"`
+	Any     map[string]any   `mapstructure:"any"`
+}
+
+func TestRedactedDoesNotTrustCustomFormatting(t *testing.T) {
+	opts := &trickyOptions{
+		Text:    textCreds{User: "u1", Password: "pw-1"},
+		TextPtr: &textCreds{User: "u2", Password: "pw-2"},
+		Name:    "plain-name",
+		ByKey:   map[keyed]string{{ID: "k", Token: "tok-1"}: "v"},
+		Opaque:  opaque{hidden: "x"},
+		Counts:  map[loudName]int{"n": 1},
+		Texts:   []textCreds{{User: "u3", Password: "pw-3"}},
+		Any:     map[string]any{"c": textCreds{User: "u4", Password: "pw-4"}},
+	}
+
+	got := config.Redacted(opts)
+
+	assert.Equal(t, map[string]any{
+		"text.user":         "u1",
+		"text.password":     "******",
+		"text_ptr.user":     "u2",
+		"text_ptr.password": "******",
+		"name":              "plain-name",
+		"by_key":            "******",
+		"opaque":            "******",
+		"counts":            map[string]any{"n": int64(1)},
+		"texts":             []any{map[string]any{"user": "u3", "password": "******"}},
+		"any":               map[string]any{"c": map[string]any{"user": "u4", "password": "******"}},
+	}, got)
+}
+
+type node struct {
+	Name string `mapstructure:"name"`
+	Next *node  `mapstructure:"next"`
+}
+
+type cyclicOptions struct {
+	Head   *node          `mapstructure:"head"`
+	A      *node          `mapstructure:"a"`
+	B      *node          `mapstructure:"b"`
+	Nested map[string]any `mapstructure:"nested"`
+}
+
+func TestRedactedCutsCyclesAndKeepsSharedValues(t *testing.T) {
+	head := &node{Name: "head"}
+	head.Next = head
+	shared := &node{Name: "shared"}
+	nested := map[string]any{"name": "m"}
+	nested["self"] = nested
+	opts := &cyclicOptions{Head: head, A: shared, B: shared, Nested: nested}
+
+	got := config.Redacted(opts)
+
+	assert.Equal(t, map[string]any{
+		"head.name": "head",
+		"head.next": "<cycle>",
+		"a.name":    "shared",
+		"a.next":    nil,
+		"b.name":    "shared",
+		"b.next":    nil,
+		"nested":    map[string]any{"name": "m", "self": "<cycle>"},
+	}, got)
+}
+
+type item struct {
+	Name string `mapstructure:"name"`
+}
+
+type treeOptions struct {
+	Server serverOptions     `mapstructure:"server"`
+	Ptr    *item             `mapstructure:"ptr"`
+	Items  []item            `mapstructure:"items"`
+	ByName map[string]item   `mapstructure:"by_name"`
+	Labels map[string]string `mapstructure:"labels"`
+}
+
+func (o *treeOptions) AddFlags(*pflag.FlagSet) {}
+func (o *treeOptions) Complete() error         { return nil }
+func (o *treeOptions) Validate() error         { return nil }
+
+func TestLoadRejectsUnknownKeysAnywhereInTheFile(t *testing.T) {
+	tests := []struct{ file, want string }{
+		{"bogus: {}\n", "bogus"},
+		{"server:\n  prot: {}\n", "server.prot"},
+		{"ptr:\n  nmae: x\n", "ptr.nmae"},
+		{"items:\n  - name: a\n  - nmae: b\n", "items.1.nmae"},
+		{"by_name:\n  first:\n    nmae: x\n", "by_name.first.nmae"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			err := load(t, &treeOptions{}, writeFile(t, "config.yaml", tt.file))
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+		})
+	}
+}
+
+func TestLoadAcceptsDynamicMapEntries(t *testing.T) {
+	file := "server:\n  port: 2\nptr:\n  name: p\nitems:\n  - name: a\nby_name:\n  first:\n    name: x\nlabels:\n  team: core\n"
+	opts := &treeOptions{}
+
+	require.NoError(t, load(t, opts, writeFile(t, "config.yaml", file)))
+
+	assert.Equal(t, &treeOptions{
+		Server: serverOptions{Port: 2},
+		Ptr:    &item{Name: "p"},
+		Items:  []item{{Name: "a"}},
+		ByName: map[string]item{"first": {Name: "x"}},
+		Labels: map[string]string{"team": "core"},
+	}, opts)
 }

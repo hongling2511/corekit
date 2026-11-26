@@ -278,14 +278,23 @@ func TestLogFormatAndLevel(t *testing.T) {
 }
 
 func TestUnknownConfigFileKeyExitsNonZero(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "sample.yaml")
-	require.NoError(t, os.WriteFile(file, []byte("log:\n  leve1: error\n"), 0o600))
+	tests := []struct{ file, want string }{
+		{"log:\n  leve1: error\n", "log.leve1"},
+		{"log:\n  leve1: {}\n", "log.leve1"},
+		{"bogus: {}\n", "bogus"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want+" in "+strings.TrimSpace(tt.file), func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "sample.yaml")
+			require.NoError(t, os.WriteFile(file, []byte(tt.file), 0o600))
 
-	r := run(t, nil, "version", "--config", file)
+			r := run(t, nil, "version", "--config", file)
 
-	assert.NotEqual(t, 0, r.code)
-	assert.Contains(t, r.stderr, "log.leve1")
-	assert.Empty(t, r.stdout, "the subcommand must not run")
+			assert.NotEqual(t, 0, r.code)
+			assert.Contains(t, r.stderr, tt.want)
+			assert.Empty(t, r.stdout, "the subcommand must not run")
+		})
+	}
 }
 
 func TestEmptyEnvOverridesConfigFile(t *testing.T) {
