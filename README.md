@@ -27,7 +27,7 @@ Heavy dependencies such as gin, gorm, go-redis, casbin and asynq belong to the c
 | `make run` | no-op until the sample service exists |
 | `make docker` | no-op until there is an image to build |
 
-Lint tools are pinned in the `Makefile` and installed into `./bin` on first use, so local runs and CI use the same versions.
+The Go toolchain is pinned by the `toolchain` line in `go.mod`. Lint tools are pinned in the `Makefile` and installed into `./bin` on first use, so local runs and CI use the same versions.
 
 ## CI
 

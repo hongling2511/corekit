@@ -6,43 +6,84 @@ linters:
   settings:
     depguard:
       # Layering: role -> capability -> foundation. Imports only point downward.
+      # File globs are anchored to this config file's directory (the module root).
+      # A trailing "$" makes an entry an exact match; the "/" entry covers subpackages.
       rules:
         # Foundation: standard library plus cobra/pflag/viper, and other foundation packages.
         foundation:
           list-mode: strict
           files:
-            - "**/app/**"
-            - "**/config/**"
-            - "**/log/**"
-            - "**/errx/**"
-            - "**/version/**"
+            - "${config-path}/app/**"
+            - "${config-path}/config/**"
+            - "${config-path}/log/**"
+            - "${config-path}/errx/**"
+            - "${config-path}/version/**"
+            - "!$test"
           allow:
             - $gostd
             - github.com/spf13/cobra
             - github.com/spf13/pflag
             - github.com/spf13/viper
-            - github.com/hongling2511/corekit/app
-            - github.com/hongling2511/corekit/config
-            - github.com/hongling2511/corekit/log
-            - github.com/hongling2511/corekit/errx
-            - github.com/hongling2511/corekit/version
+            - github.com/hongling2511/corekit/app$
+            - github.com/hongling2511/corekit/app/
+            - github.com/hongling2511/corekit/config$
+            - github.com/hongling2511/corekit/config/
+            - github.com/hongling2511/corekit/log$
+            - github.com/hongling2511/corekit/log/
+            - github.com/hongling2511/corekit/errx$
+            - github.com/hongling2511/corekit/errx/
+            - github.com/hongling2511/corekit/version$
+            - github.com/hongling2511/corekit/version/
+        # Foundation tests: the same, plus testify for assertions.
+        foundation-test:
+          list-mode: strict
+          files:
+            - "${config-path}/app/**_test.go"
+            - "${config-path}/config/**_test.go"
+            - "${config-path}/log/**_test.go"
+            - "${config-path}/errx/**_test.go"
+            - "${config-path}/version/**_test.go"
+          allow:
+            - $gostd
+            - github.com/spf13/cobra
+            - github.com/spf13/pflag
+            - github.com/spf13/viper
+            - github.com/stretchr/testify
+            - github.com/hongling2511/corekit/app$
+            - github.com/hongling2511/corekit/app/
+            - github.com/hongling2511/corekit/config$
+            - github.com/hongling2511/corekit/config/
+            - github.com/hongling2511/corekit/log$
+            - github.com/hongling2511/corekit/log/
+            - github.com/hongling2511/corekit/errx$
+            - github.com/hongling2511/corekit/errx/
+            - github.com/hongling2511/corekit/version$
+            - github.com/hongling2511/corekit/version/
         # Capability: may use foundation and third-party libraries, never the role layer.
         capability:
           list-mode: lax
           files:
-            - "**/middleware/**"
-            - "**/auth/**"
-            - "**/db/**"
-            - "**/redisx/**"
-            - "**/obs/**"
+            - "${config-path}/middleware/**"
+            - "${config-path}/auth/**"
+            - "${config-path}/db/**"
+            - "${config-path}/redisx/**"
+            - "${config-path}/obs/**"
           deny:
-            - pkg: github.com/hongling2511/corekit/httpx
+            - pkg: github.com/hongling2511/corekit/httpx$
               desc: capability layer must not import the role layer
-            - pkg: github.com/hongling2511/corekit/grpcx
+            - pkg: github.com/hongling2511/corekit/httpx/
               desc: capability layer must not import the role layer
-            - pkg: github.com/hongling2511/corekit/worker
+            - pkg: github.com/hongling2511/corekit/grpcx$
               desc: capability layer must not import the role layer
-            - pkg: github.com/hongling2511/corekit/cron
+            - pkg: github.com/hongling2511/corekit/grpcx/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/worker$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/worker/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/cron$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/cron/
               desc: capability layer must not import the role layer
 
 formatters:

@@ -7,6 +7,9 @@ base=${1:?usage: check-commits.sh <base> [<head>]}
 head=${2:-HEAD}
 pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([^)]+\))?!?: .+'
 
+git rev-parse --verify --quiet "$base^{commit}" >/dev/null || { echo "unknown base commit: $base" >&2; exit 1; }
+git rev-parse --verify --quiet "$head^{commit}" >/dev/null || { echo "unknown head commit: $head" >&2; exit 1; }
+
 bad=0
 while IFS= read -r line; do
   sha=${line%% *}
