@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -86,4 +87,47 @@ func TestStartupLogAndConfigPrintHideCompositeSecrets(t *testing.T) {
 		}
 	}
 	assert.True(t, strings.Contains(stderr, `"msg":"starting"`), stderr)
+}
+
+type plainOptions struct {
+	Log log.Options `mapstructure:"log"`
+}
+
+func (o *plainOptions) AddFlags(fs *pflag.FlagSet) { o.Log.AddFlags(fs) }
+func (o *plainOptions) Complete() error            { return o.Log.Complete() }
+func (o *plainOptions) Validate() error            { return o.Log.Validate() }
+func (o *plainOptions) Logging() *log.Options      { return &o.Log }
+
+func TestDeclaredSubcommandLogsToConfiguredOutput(t *testing.T) {
+	ran := false
+	greet := app.Command{Name: "greet", Short: "Log a greeting", Run: func(ctx context.Context) error {
+		ran = true
+		slog.InfoContext(log.WithTraceID(ctx, "t-1"), "hello")
+		return nil
+	}}
+	tests := []struct {
+		args               []string
+		wantOut, wantEmpty string
+	}{
+		{args: []string{"greet"}, wantOut: "stdout", wantEmpty: "stderr"},
+		{args: []string{"greet", "--log.output=stderr"}, wantOut: "stderr", wantEmpty: "stdout"},
+	}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			ran = false
+			opts := &plainOptions{Log: *log.NewOptions()}
+			var code int
+
+			stdout, stderr := capture(t, func() {
+				code = app.New("test", opts, greet).Run(context.Background(), tt.args)
+			})
+
+			require.Equal(t, 0, code, stderr)
+			assert.True(t, ran)
+			outputs := map[string]string{"stdout": stdout, "stderr": stderr}
+			assert.Contains(t, outputs[tt.wantOut], `"msg":"starting"`)
+			assert.Contains(t, outputs[tt.wantOut], `"msg":"hello","trace_id":"t-1"`)
+			assert.Empty(t, outputs[tt.wantEmpty])
+		})
+	}
 }

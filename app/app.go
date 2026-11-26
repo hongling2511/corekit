@@ -5,7 +5,9 @@
 // configuration → decode it into the options object → complete → validate →
 // initialise logging → log the version and the redacted effective
 // configuration → run the subcommand. The built-in `version` and
-// `config print` subcommands are always present.
+// `config print` subcommands are always present; they are operations
+// subcommands, so the pipeline logs to stderr for them and their stdout
+// holds only their result. Other subcommands log to log.output.
 package app
 
 import (
@@ -86,9 +88,10 @@ func (a *App) rootCommand() *cobra.Command {
 
 	root.AddCommand(
 		&cobra.Command{
-			Use:   "version",
-			Short: "Print the version and build information",
-			Args:  cobra.NoArgs,
+			Use:         "version",
+			Short:       "Print the version and build information",
+			Args:        cobra.NoArgs,
+			Annotations: opsAnnotation,
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				_, err := fmt.Fprint(cmd.OutOrStdout(), version.Get().String())
 				return err
@@ -104,20 +107,24 @@ func (a *App) rootCommand() *cobra.Command {
 
 // start runs the pipeline steps between flag parsing and the subcommand.
 func (a *App) start(cmd *cobra.Command, configFile string, optionFlags *pflag.FlagSet) error {
+	ctx := cmd.Context()
 	src := config.Source{File: configFile, EnvPrefix: envPrefix(a.name), Flags: optionFlags}
-	if err := config.Load(a.opts, src); err != nil {
+	if err := config.Load(ctx, a.opts, src); err != nil {
 		return err
 	}
-	logOpts := log.NewOptions()
+	logOpts := *log.NewOptions()
 	if l, ok := a.opts.(Logging); ok {
-		logOpts = l.Logging()
+		logOpts = *l.Logging()
 	}
-	logger, err := log.New(logOpts)
+	if isOps(cmd) {
+		logOpts.Output = "stderr"
+	}
+	logger, err := log.New(&logOpts)
 	if err != nil {
 		return err
 	}
 	slog.SetDefault(logger)
-	logger.InfoContext(cmd.Context(), "starting",
+	logger.InfoContext(ctx, "starting",
 		"app", a.name,
 		"command", cmd.CommandPath(),
 		"version", version.Get().Version,
@@ -129,15 +136,21 @@ func (a *App) start(cmd *cobra.Command, configFile string, optionFlags *pflag.Fl
 func configCommand(opts config.Options) *cobra.Command {
 	cmd := &cobra.Command{Use: "config", Short: "Inspect the configuration"}
 	cmd.AddCommand(&cobra.Command{
-		Use:   "print",
-		Short: "Print the effective configuration, secrets redacted",
-		Args:  cobra.NoArgs,
+		Use:         "print",
+		Short:       "Print the effective configuration, secrets redacted",
+		Args:        cobra.NoArgs,
+		Annotations: opsAnnotation,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return printJSON(cmd.OutOrStdout(), config.Redacted(opts))
 		},
 	})
 	return cmd
 }
+
+// opsAnnotation marks an operations subcommand, whose stdout is its result.
+var opsAnnotation = map[string]string{"corekit.ops": "true"}
+
+func isOps(cmd *cobra.Command) bool { return cmd.Annotations["corekit.ops"] == "true" }
 
 func printJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)

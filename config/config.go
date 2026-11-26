@@ -10,6 +10,7 @@
 package config
 
 import (
+	"context"
 	"encoding"
 	"fmt"
 	"reflect"
@@ -37,8 +38,12 @@ type Source struct {
 }
 
 // Load merges the sources into opts (a pointer to a struct), then calls
-// opts.Complete and opts.Validate.
-func Load(opts Options, src Source) error {
+// opts.Complete and opts.Validate. It returns ctx's error, without loading,
+// if ctx is already done.
+func Load(ctx context.Context, opts Options, src Source) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	v := viper.New()
 	known := defaults(opts)
 	for key, value := range known {

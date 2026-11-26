@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -42,7 +43,7 @@ func load(t *testing.T, opts config.Options, file string, args ...string) error 
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	opts.AddFlags(fs)
 	require.NoError(t, fs.Parse(args))
-	return config.Load(opts, config.Source{File: file, EnvPrefix: "TEST", Flags: fs})
+	return config.Load(context.Background(), opts, config.Source{File: file, EnvPrefix: "TEST", Flags: fs})
 }
 
 func writeFile(t *testing.T, name, content string) string {
@@ -252,4 +253,14 @@ func TestLoadEmptyEnvOverridesFile(t *testing.T) {
 	require.NoError(t, load(t, opts, path))
 
 	assert.Equal(t, "", opts.Name)
+}
+
+func TestLoadStopsWhenContextIsDone(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	opts := newTestOptions()
+
+	err := config.Load(ctx, opts, config.Source{EnvPrefix: "TEST"})
+
+	require.ErrorIs(t, err, context.Canceled)
 }

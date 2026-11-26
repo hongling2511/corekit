@@ -140,11 +140,11 @@ func goVersionM(t *testing.T) map[string][]string {
 	return info
 }
 
-// printedConfig runs `config print` with logs sent to stderr and decodes the
-// configuration printed on stdout.
+// printedConfig runs `config print` and decodes its stdout, which must hold
+// nothing but the configuration.
 func printedConfig(t *testing.T, env []string, args ...string) map[string]any {
 	t.Helper()
-	r := run(t, env, append([]string{"config", "print", "--log.output=stderr"}, args...)...)
+	r := run(t, env, append([]string{"config", "print"}, args...)...)
 	require.Equal(t, 0, r.code, r.stderr)
 	var got map[string]any
 	require.NoError(t, json.Unmarshal([]byte(r.stdout), &got), r.stdout)
@@ -157,9 +157,35 @@ func TestConfigPrintShowsEffectiveConfig(t *testing.T) {
 	assert.Equal(t, map[string]any{
 		"log.level":  "info",
 		"log.format": "json",
-		"log.output": "stderr",
+		"log.output": "stdout",
 		"token":      "",
 	}, got)
+}
+
+func TestOpsCommandsLogStartupToStderr(t *testing.T) {
+	// Operations subcommands keep stdout for their result, whatever
+	// log.output says, so scripts can parse it.
+	for _, output := range []string{"stdout", "stderr"} {
+		t.Run("config print with log.output="+output, func(t *testing.T) {
+			r := run(t, nil, "config", "print", "--log.output="+output)
+
+			require.Equal(t, 0, r.code, r.stderr)
+			dec := json.NewDecoder(strings.NewReader(r.stdout))
+			var cfg map[string]any
+			require.NoError(t, dec.Decode(&cfg), r.stdout)
+			assert.False(t, dec.More(), "stdout holds only the configuration: %q", r.stdout)
+			assert.Equal(t, output, cfg["log.output"])
+			assert.Contains(t, r.stderr, `"msg":"starting"`)
+		})
+		t.Run("version with log.output="+output, func(t *testing.T) {
+			r := run(t, nil, "version", "--log.output="+output)
+
+			require.Equal(t, 0, r.code, r.stderr)
+			assert.True(t, strings.HasPrefix(r.stdout, "version: "), r.stdout)
+			assert.NotContains(t, r.stdout, "starting")
+			assert.Contains(t, r.stderr, `"msg":"starting"`)
+		})
+	}
 }
 
 func TestConfigPrecedence(t *testing.T) {
@@ -221,14 +247,14 @@ func TestStartupLogsVersionAndRedactedConfig(t *testing.T) {
 
 	require.Equal(t, 0, r.code, r.stderr)
 	assert.NotContains(t, r.stdout+r.stderr, "s3cr3t-token")
-	line, _, _ := strings.Cut(r.stdout, "\n")
+	line, _, _ := strings.Cut(r.stderr, "\n")
 	var entry struct {
 		Level   string         `json:"level"`
 		Msg     string         `json:"msg"`
 		Version string         `json:"version"`
 		Config  map[string]any `json:"config"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(line), &entry), "first stdout line is the JSON start-up log: %q", line)
+	require.NoError(t, json.Unmarshal([]byte(line), &entry), "first stderr line is the JSON start-up log: %q", line)
 	assert.Equal(t, "INFO", entry.Level)
 	assert.Equal(t, "starting", entry.Msg)
 	assert.Equal(t, goVersionM(t)["mod"][1], entry.Version)
@@ -241,20 +267,13 @@ func TestLogFormatAndLevel(t *testing.T) {
 		r := run(t, nil, "version", "--log.format=text")
 
 		require.Equal(t, 0, r.code, r.stderr)
-		assert.Regexp(t, `(?m)^time=\S+ level=INFO msg=starting app=sample`, r.stdout)
+		assert.Regexp(t, `(?m)^time=\S+ level=INFO msg=starting app=sample`, r.stderr)
 	})
 	t.Run("level above info suppresses the start-up log", func(t *testing.T) {
 		r := run(t, nil, "version", "--log.level=warn")
 
 		require.Equal(t, 0, r.code, r.stderr)
-		assert.True(t, strings.HasPrefix(r.stdout, "version: "), r.stdout)
-	})
-	t.Run("stderr output", func(t *testing.T) {
-		r := run(t, nil, "version", "--log.output=stderr")
-
-		require.Equal(t, 0, r.code, r.stderr)
-		assert.True(t, strings.HasPrefix(r.stdout, "version: "), r.stdout)
-		assert.Contains(t, r.stderr, `"msg":"starting"`)
+		assert.Empty(t, r.stderr)
 	})
 }
 
