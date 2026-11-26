@@ -21,14 +21,25 @@ jobs:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BRANCH: ${{ github.ref_name }}
         run: |
           if [ "$EVENT" = pull_request ]; then
             base=$PR_BASE
-          elif ! git cat-file -e "${PUSH_BEFORE:-0}^{commit}" 2>/dev/null; then
-            # New branch, or a force-push whose old tip is gone:
-            # check only the commits not yet on the default branch.
+          elif [ "$PUSH_BEFORE" = 0000000000000000000000000000000000000000 ]; then
+            # New branch: check the commits not yet on the default branch.
+            if [ "$BRANCH" = "$DEFAULT_BRANCH" ]; then
+              echo "new default branch: cannot determine which commits to check" >&2
+              exit 1
+            fi
             base=origin/$DEFAULT_BRANCH
           else
+            # The previous tip may be missing after a force-push; try to fetch it by SHA.
+            git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null ||
+              git fetch --quiet --no-tags origin "$PUSH_BEFORE" || true
+            if ! git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+              echo "previous tip $PUSH_BEFORE is unreachable: cannot determine which commits to check" >&2
+              exit 1
+            fi
             base=$PUSH_BEFORE
           fi
           scripts/check-commits.sh "$base" HEAD
@@ -39,13 +50,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
+        id: setup-go
         with:
           # Uses the toolchain line in go.mod, the same Go version local runs switch to.
           go-version-file: go.mod
       - uses: actions/cache@v4
         with:
           path: bin
-          key: tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
+          # Tools are rebuilt when the Go version, runner platform or pinned tool versions change.
+          key: tools-${{ runner.os }}-${{ runner.arch }}-go${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('Makefile') }}
       - run: make lint
       - run: make test
       - run: make build

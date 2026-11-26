@@ -5,15 +5,15 @@ linters:
     - depguard
   settings:
     depguard:
-      # Layering: role -> capability -> foundation. Imports only point downward.
+      # Layering: role -> capability -> foundation. Imports only point downward;
+      # packages in the same role or capability layer do not import each other.
       # File globs are anchored to this config file's directory (the module root).
-      # A trailing "$" makes an entry an exact match; the "/" entry covers subpackages.
+      # A trailing "$" makes an entry an exact match; a trailing "/" admits subpackages.
       rules:
-        # Foundation: standard library plus cobra/pflag/viper, and other foundation packages.
+        # Standalone foundation packages: stdlib, cobra/pflag/viper, each other; never app.
         foundation:
           list-mode: strict
           files:
-            - "${config-path}/app/**"
             - "${config-path}/config/**"
             - "${config-path}/log/**"
             - "${config-path}/errx/**"
@@ -21,11 +21,9 @@ linters:
             - "!$test"
           allow:
             - $gostd
-            - github.com/spf13/cobra
-            - github.com/spf13/pflag
-            - github.com/spf13/viper
-            - github.com/hongling2511/corekit/app$
-            - github.com/hongling2511/corekit/app/
+            - github.com/spf13/cobra$
+            - github.com/spf13/pflag$
+            - github.com/spf13/viper$
             - github.com/hongling2511/corekit/config$
             - github.com/hongling2511/corekit/config/
             - github.com/hongling2511/corekit/log$
@@ -34,21 +32,39 @@ linters:
             - github.com/hongling2511/corekit/errx/
             - github.com/hongling2511/corekit/version$
             - github.com/hongling2511/corekit/version/
-        # Foundation tests: the same, plus testify for assertions.
+        # Their tests: the same plus testify; still never app, so each stays usable on its own.
         foundation-test:
           list-mode: strict
           files:
-            - "${config-path}/app/**_test.go"
             - "${config-path}/config/**_test.go"
             - "${config-path}/log/**_test.go"
             - "${config-path}/errx/**_test.go"
             - "${config-path}/version/**_test.go"
           allow:
             - $gostd
-            - github.com/spf13/cobra
-            - github.com/spf13/pflag
-            - github.com/spf13/viper
-            - github.com/stretchr/testify
+            - github.com/spf13/cobra$
+            - github.com/spf13/pflag$
+            - github.com/spf13/viper$
+            - github.com/stretchr/testify/
+            - github.com/hongling2511/corekit/config$
+            - github.com/hongling2511/corekit/config/
+            - github.com/hongling2511/corekit/log$
+            - github.com/hongling2511/corekit/log/
+            - github.com/hongling2511/corekit/errx$
+            - github.com/hongling2511/corekit/errx/
+            - github.com/hongling2511/corekit/version$
+            - github.com/hongling2511/corekit/version/
+        # app (the start-up pipeline) may also use the standalone foundation packages.
+        app:
+          list-mode: strict
+          files:
+            - "${config-path}/app/**"
+            - "!$test"
+          allow:
+            - $gostd
+            - github.com/spf13/cobra$
+            - github.com/spf13/pflag$
+            - github.com/spf13/viper$
             - github.com/hongling2511/corekit/app$
             - github.com/hongling2511/corekit/app/
             - github.com/hongling2511/corekit/config$
@@ -59,14 +75,183 @@ linters:
             - github.com/hongling2511/corekit/errx/
             - github.com/hongling2511/corekit/version$
             - github.com/hongling2511/corekit/version/
-        # Capability: may use foundation and third-party libraries, never the role layer.
-        capability:
+        # app's tests: the same plus testify.
+        app-test:
+          list-mode: strict
+          files:
+            - "${config-path}/app/**_test.go"
+          allow:
+            - $gostd
+            - github.com/spf13/cobra$
+            - github.com/spf13/pflag$
+            - github.com/spf13/viper$
+            - github.com/stretchr/testify/
+            - github.com/hongling2511/corekit/app$
+            - github.com/hongling2511/corekit/app/
+            - github.com/hongling2511/corekit/config$
+            - github.com/hongling2511/corekit/config/
+            - github.com/hongling2511/corekit/log$
+            - github.com/hongling2511/corekit/log/
+            - github.com/hongling2511/corekit/errx$
+            - github.com/hongling2511/corekit/errx/
+            - github.com/hongling2511/corekit/version$
+            - github.com/hongling2511/corekit/version/
+        # middleware: foundation and third-party only; no role package, no other capability package.
+        capability-middleware:
           list-mode: lax
           files:
             - "${config-path}/middleware/**"
+          deny:
+            - pkg: github.com/hongling2511/corekit/httpx$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/httpx/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/grpcx$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/grpcx/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/worker$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/worker/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/cron$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/cron/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/auth$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/auth/
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/db$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/db/
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/redisx$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/redisx/
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/obs$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/obs/
+              desc: capability packages must not import each other
+        # auth: foundation and third-party only; no role package, no other capability package.
+        capability-auth:
+          list-mode: lax
+          files:
             - "${config-path}/auth/**"
+          deny:
+            - pkg: github.com/hongling2511/corekit/httpx$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/httpx/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/grpcx$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/grpcx/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/worker$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/worker/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/cron$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/cron/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/middleware$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/middleware/
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/db$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/db/
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/redisx$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/redisx/
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/obs$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/obs/
+              desc: capability packages must not import each other
+        # db: foundation and third-party only; no role package, no other capability package.
+        capability-db:
+          list-mode: lax
+          files:
             - "${config-path}/db/**"
+          deny:
+            - pkg: github.com/hongling2511/corekit/httpx$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/httpx/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/grpcx$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/grpcx/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/worker$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/worker/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/cron$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/cron/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/middleware$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/middleware/
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/auth$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/auth/
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/redisx$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/redisx/
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/obs$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/obs/
+              desc: capability packages must not import each other
+        # redisx: foundation and third-party only; no role package, no other capability package.
+        capability-redisx:
+          list-mode: lax
+          files:
             - "${config-path}/redisx/**"
+          deny:
+            - pkg: github.com/hongling2511/corekit/httpx$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/httpx/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/grpcx$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/grpcx/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/worker$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/worker/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/cron$
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/cron/
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/middleware$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/middleware/
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/auth$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/auth/
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/db$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/db/
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/obs$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/obs/
+              desc: capability packages must not import each other
+        # obs: foundation and third-party only; no role package, no other capability package.
+        capability-obs:
+          list-mode: lax
+          files:
             - "${config-path}/obs/**"
           deny:
             - pkg: github.com/hongling2511/corekit/httpx$
@@ -85,6 +270,94 @@ linters:
               desc: capability layer must not import the role layer
             - pkg: github.com/hongling2511/corekit/cron/
               desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/middleware$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/middleware/
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/auth$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/auth/
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/db$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/db/
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/redisx$
+              desc: capability packages must not import each other
+            - pkg: github.com/hongling2511/corekit/redisx/
+              desc: capability packages must not import each other
+        # httpx: capability, foundation and third-party; no other role package.
+        role-httpx:
+          list-mode: lax
+          files:
+            - "${config-path}/httpx/**"
+          deny:
+            - pkg: github.com/hongling2511/corekit/grpcx$
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/grpcx/
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/worker$
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/worker/
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/cron$
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/cron/
+              desc: role packages must not import each other
+        # grpcx: capability, foundation and third-party; no other role package.
+        role-grpcx:
+          list-mode: lax
+          files:
+            - "${config-path}/grpcx/**"
+          deny:
+            - pkg: github.com/hongling2511/corekit/httpx$
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/httpx/
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/worker$
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/worker/
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/cron$
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/cron/
+              desc: role packages must not import each other
+        # worker: capability, foundation and third-party; no other role package.
+        role-worker:
+          list-mode: lax
+          files:
+            - "${config-path}/worker/**"
+          deny:
+            - pkg: github.com/hongling2511/corekit/httpx$
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/httpx/
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/grpcx$
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/grpcx/
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/cron$
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/cron/
+              desc: role packages must not import each other
+        # cron: capability, foundation and third-party; no other role package.
+        role-cron:
+          list-mode: lax
+          files:
+            - "${config-path}/cron/**"
+          deny:
+            - pkg: github.com/hongling2511/corekit/httpx$
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/httpx/
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/grpcx$
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/grpcx/
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/worker$
+              desc: role packages must not import each other
+            - pkg: github.com/hongling2511/corekit/worker/
+              desc: role packages must not import each other
 
 formatters:
   enable:

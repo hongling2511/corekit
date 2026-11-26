@@ -8,9 +8,11 @@ The library is organised in three layers. Imports may only point downward: role 
 
 | Layer | Packages | May import |
 |---|---|---|
-| Role | `httpx` `grpcx` `worker` `cron` | capability, foundation, third-party libraries |
-| Capability | `middleware` `auth` `db` `redisx` `obs` | foundation, third-party libraries; never the role layer |
+| Role | `httpx` `grpcx` `worker` `cron` | capability, foundation, third-party libraries; not another role package |
+| Capability | `middleware` `auth` `db` `redisx` `obs` | foundation, third-party libraries; not the role layer, not another capability package |
 | Foundation | `app` `config` `log` `errx` `version` | the standard library, `cobra`, `pflag`, `viper`, and other foundation packages only |
+
+Within the foundation layer, `config`, `log`, `errx` and `version` never import `app`, even in their tests, so each one can be used on its own. Only `app`, the start-up pipeline, builds on the others. Foundation tests may also use testify. A package may always import its own subpackages.
 
 Heavy dependencies such as gin, gorm, go-redis, casbin and asynq belong to the capability and role packages that need them, never to the foundation layer.
 
