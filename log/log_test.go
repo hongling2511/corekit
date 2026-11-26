@@ -101,3 +101,24 @@ func TestOptionsValidateNamesTheBadKey(t *testing.T) {
 		})
 	}
 }
+
+func TestContextHandlerKeepsFieldsTopLevelInGroups(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(log.NewContextHandler(slog.NewJSONHandler(&buf, nil))).With("svc", "a").WithGroup("req").With("id", 1)
+	ctx := log.WithUserID(log.WithTraceID(context.Background(), "t-1"), "u-1")
+
+	logger.InfoContext(ctx, "hello", "k", "v")
+
+	got := decode(t, buf.Bytes())
+	assert.Equal(t, "t-1", got["trace_id"])
+	assert.Equal(t, "u-1", got["user_id"])
+	assert.Equal(t, "a", got["svc"])
+	assert.Equal(t, map[string]any{"id": float64(1), "k": "v"}, got["req"])
+}
+
+func TestNewCompletesBeforeValidating(t *testing.T) {
+	logger, err := log.New(&log.Options{Level: "INFO", Format: "JSON", Output: "STDERR"})
+
+	require.NoError(t, err)
+	assert.NotNil(t, logger)
+}

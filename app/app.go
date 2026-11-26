@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -35,10 +34,9 @@ type Logging interface {
 // Command is a subcommand. Run receives the context of the program; the
 // options object has been loaded and validated when Run is called.
 type Command struct {
-	Name     string
-	Short    string
-	Run      func(ctx context.Context) error
-	Commands []Command // nested subcommands
+	Name  string
+	Short string
+	Run   func(ctx context.Context) error
 }
 
 // App is a command-line program assembled from a name, an options object and
@@ -62,7 +60,7 @@ func (a *App) Run(ctx context.Context, args []string) int {
 	root := a.rootCommand()
 	root.SetArgs(args)
 	if err := root.ExecuteContext(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %v\n", a.name, err)
+		root.PrintErrf("%s: %v\n", a.name, err)
 		return 1
 	}
 	return 0
@@ -148,15 +146,12 @@ func printJSON(w io.Writer, v any) error {
 }
 
 func cobraCommand(c Command) *cobra.Command {
-	cmd := &cobra.Command{Use: c.Name, Short: c.Short}
-	if c.Run != nil {
-		cmd.Args = cobra.NoArgs
-		cmd.RunE = func(cmd *cobra.Command, _ []string) error { return c.Run(cmd.Context()) }
+	return &cobra.Command{
+		Use:   c.Name,
+		Short: c.Short,
+		Args:  cobra.NoArgs,
+		RunE:  func(cmd *cobra.Command, _ []string) error { return c.Run(cmd.Context()) },
 	}
-	for _, sub := range c.Commands {
-		cmd.AddCommand(cobraCommand(sub))
-	}
-	return cmd
 }
 
 func envPrefix(name string) string {

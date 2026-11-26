@@ -167,3 +167,13 @@ func TestRedactedHidesSecretsAndFlattensKeys(t *testing.T) {
 		"server.port": 8080,
 	}, got)
 }
+
+func TestRedactedSkipsFieldsExcludedFromConfig(t *testing.T) {
+	got := config.Redacted(&orderOptions{Host: "h", Addr: "derived"})
+
+	assert.Equal(t, map[string]any{"host": "h"}, got)
+}
+
+func TestRedactedOfNonStructIsEmpty(t *testing.T) {
+	assert.Empty(t, config.Redacted("not a struct"))
+}

@@ -70,7 +70,7 @@ func Load(opts Options, src Source) error {
 }
 
 // Redacted returns the configuration held by opts (a pointer to a struct)
-// as dotted keys and values, for printing. Non-empty fields tagged
+// as dotted keys and values, for printing; it is empty for any other value. Non-empty fields tagged
 // `secret:"true"` are replaced with "******".
 func Redacted(opts any) map[string]any {
 	return values(opts, true)
@@ -80,7 +80,9 @@ func Redacted(opts any) map[string]any {
 // redact, non-empty fields tagged `secret:"true"` are replaced.
 func values(opts any, redact bool) map[string]any {
 	out := map[string]any{}
-	walk(reflect.Indirect(reflect.ValueOf(opts)), "", redact, out)
+	if v := reflect.Indirect(reflect.ValueOf(opts)); v.Kind() == reflect.Struct {
+		walk(v, "", redact, out)
+	}
 	return out
 }
 
@@ -88,10 +90,11 @@ func walk(v reflect.Value, prefix string, redact bool, out map[string]any) {
 	t := v.Type()
 	for i := range t.NumField() {
 		f := t.Field(i)
-		if !f.IsExported() {
+		name := tagName(f)
+		if !f.IsExported() || name == "-" {
 			continue
 		}
-		key := prefix + tagName(f)
+		key := prefix + name
 		fv := v.Field(i)
 		if fv.Kind() == reflect.Struct {
 			walk(fv, key+".", redact, out)
@@ -106,7 +109,7 @@ func walk(v reflect.Value, prefix string, redact bool, out map[string]any) {
 }
 
 // tagName returns a field's key from its mapstructure tag, or the lower-cased
-// field name when untagged.
+// field name when untagged; "-" marks a field that is not configuration.
 func tagName(f reflect.StructField) string {
 	name, _, _ := strings.Cut(f.Tag.Get("mapstructure"), ",")
 	if name == "" {

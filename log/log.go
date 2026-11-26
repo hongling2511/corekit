@@ -58,8 +58,13 @@ func (o *Options) Validate() error {
 	return errors.Join(errs...)
 }
 
-// New returns a logger configured by o, wrapped in the context Handler.
-func New(o *Options) (*slog.Logger, error) {
+// New returns a logger configured by o (completed and validated on a copy),
+// wrapped in the context Handler.
+func New(opts *Options) (*slog.Logger, error) {
+	o := *opts
+	if err := o.Complete(); err != nil {
+		return nil, err
+	}
 	if err := o.Validate(); err != nil {
 		return nil, err
 	}
