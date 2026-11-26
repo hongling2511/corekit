@@ -177,3 +177,79 @@ func TestRedactedSkipsFieldsExcludedFromConfig(t *testing.T) {
 func TestRedactedOfNonStructIsEmpty(t *testing.T) {
 	assert.Empty(t, config.Redacted("not a struct"))
 }
+
+type credentials struct {
+	User     string `mapstructure:"user"`
+	Password string `mapstructure:"password"`
+}
+
+type upstream struct {
+	Name string `mapstructure:"name"`
+	Key  string `mapstructure:"key" secret:"true"`
+}
+
+type compositeOptions struct {
+	Plain    string              `mapstructure:"plain"`
+	Creds    credentials         `mapstructure:"creds" secret:"true"`
+	CredsPtr *credentials        `mapstructure:"creds_ptr" secret:"true"`
+	Upstream *upstream           `mapstructure:"upstream"`
+	List     []upstream          `mapstructure:"list"`
+	ByName   map[string]upstream `mapstructure:"by_name"`
+	Ptrs     []*upstream         `mapstructure:"ptrs"`
+	Keys     []string            `mapstructure:"keys" secret:"true"`
+	Labels   map[string]string   `mapstructure:"labels"`
+	Hidden   func()              `mapstructure:"hidden"`
+	Any      any                 `mapstructure:"any"`
+}
+
+func TestRedactedHidesSecretsInCompositeValues(t *testing.T) {
+	opts := &compositeOptions{
+		Plain:    "visible",
+		Creds:    credentials{User: "admin", Password: "pw-1"},
+		CredsPtr: &credentials{User: "root", Password: "pw-2"},
+		Upstream: &upstream{Name: "a", Key: "key-1"},
+		List:     []upstream{{Name: "b", Key: "key-2"}},
+		ByName:   map[string]upstream{"c": {Name: "c", Key: "key-3"}},
+		Ptrs:     []*upstream{{Name: "d", Key: "key-4"}, nil},
+		Keys:     []string{"key-5"},
+		Labels:   map[string]string{"team": "core"},
+		Hidden:   func() {},
+		Any:      upstream{Name: "e", Key: "key-6"},
+	}
+
+	got := config.Redacted(opts)
+
+	assert.Equal(t, map[string]any{
+		"plain":         "visible",
+		"creds":         "******",
+		"creds_ptr":     "******",
+		"upstream.name": "a",
+		"upstream.key":  "******",
+		"list":          []any{map[string]any{"name": "b", "key": "******"}},
+		"by_name":       map[string]any{"c": map[string]any{"name": "c", "key": "******"}},
+		"ptrs":          []any{map[string]any{"name": "d", "key": "******"}, nil},
+		"keys":          "******",
+		"labels":        map[string]any{"team": "core"},
+		"hidden":        "******",
+		"any":           map[string]any{"name": "e", "key": "******"},
+	}, got)
+}
+
+func TestLoadRejectsUnknownKeysInFile(t *testing.T) {
+	path := writeFile(t, "config.yaml", "name: x\nserver:\n  prot: 2\n")
+
+	err := load(t, newTestOptions(), path)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "server.prot")
+}
+
+func TestLoadEmptyEnvOverridesFile(t *testing.T) {
+	t.Setenv("TEST_NAME", "")
+	path := writeFile(t, "config.yaml", "name: from-file\n")
+	opts := newTestOptions()
+
+	require.NoError(t, load(t, opts, path))
+
+	assert.Equal(t, "", opts.Name)
+}

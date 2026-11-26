@@ -11,6 +11,15 @@ linters:
       # File globs are anchored to this config file's directory (the module root).
       # A trailing "$" makes an entry an exact match; a trailing "/" admits subpackages.
       rules:
+        # viper stays inside config everywhere in the module, sample and future code included.
+        viper-only-in-config:
+          list-mode: lax
+          files:
+            - $all
+            - "!${config-path}/config/**"
+          deny:
+            - pkg: github.com/spf13/viper
+              desc: viper is used only inside the config package; take a typed options struct instead
         # config: stdlib, exactly cobra/pflag/viper, and its own package tree; no other corekit package.
         foundation-config:
           list-mode: strict

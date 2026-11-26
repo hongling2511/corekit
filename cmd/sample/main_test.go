@@ -257,3 +257,23 @@ func TestLogFormatAndLevel(t *testing.T) {
 		assert.Contains(t, r.stderr, `"msg":"starting"`)
 	})
 }
+
+func TestUnknownConfigFileKeyExitsNonZero(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "sample.yaml")
+	require.NoError(t, os.WriteFile(file, []byte("log:\n  leve1: error\n"), 0o600))
+
+	r := run(t, nil, "version", "--config", file)
+
+	assert.NotEqual(t, 0, r.code)
+	assert.Contains(t, r.stderr, "log.leve1")
+	assert.Empty(t, r.stdout, "the subcommand must not run")
+}
+
+func TestEmptyEnvOverridesConfigFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "sample.yaml")
+	require.NoError(t, os.WriteFile(file, []byte("token: from-file\n"), 0o600))
+
+	got := printedConfig(t, []string{"SAMPLE_TOKEN="}, "--config", file)
+
+	assert.Equal(t, "", got["token"])
+}
