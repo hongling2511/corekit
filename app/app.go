@@ -80,7 +80,7 @@ func (a *App) rootCommand() *cobra.Command {
 		// Only the built-in and declared subcommands; no shell completion command.
 		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			return a.start(cmd, configFile, optionFlags)
+			return a.start(cmd.Context(), cmd, configFile, optionFlags)
 		},
 	}
 	root.PersistentFlags().StringVarP(&configFile, "config", "c", "", "configuration file (yaml, json or toml)")
@@ -106,8 +106,7 @@ func (a *App) rootCommand() *cobra.Command {
 }
 
 // start runs the pipeline steps between flag parsing and the subcommand.
-func (a *App) start(cmd *cobra.Command, configFile string, optionFlags *pflag.FlagSet) error {
-	ctx := cmd.Context()
+func (a *App) start(ctx context.Context, cmd *cobra.Command, configFile string, optionFlags *pflag.FlagSet) error {
 	src := config.Source{File: configFile, EnvPrefix: envPrefix(a.name), Flags: optionFlags}
 	if err := config.Load(ctx, a.opts, src); err != nil {
 		return err
@@ -141,7 +140,7 @@ func configCommand(opts config.Options) *cobra.Command {
 		Args:        cobra.NoArgs,
 		Annotations: opsAnnotation,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return printJSON(cmd.OutOrStdout(), config.Redacted(opts))
+			return printJSON(cmd.Context(), cmd.OutOrStdout(), config.Redacted(opts))
 		},
 	})
 	return cmd
@@ -152,7 +151,11 @@ var opsAnnotation = map[string]string{"corekit.ops": "true"}
 
 func isOps(cmd *cobra.Command) bool { return cmd.Annotations["corekit.ops"] == "true" }
 
-func printJSON(w io.Writer, v any) error {
+// printJSON writes v to w as indented JSON unless ctx is already done.
+func printJSON(ctx context.Context, w io.Writer, v any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)

@@ -445,3 +445,71 @@ func TestSquashedFieldsUseTheParentKeys(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "baseoptions")
 }
+
+type entry struct {
+	Name string `mapstructure:"name"`
+}
+
+type keyTreeOptions struct {
+	Server  serverOptions    `mapstructure:"server"`
+	Entries map[string]entry `mapstructure:"entries"`
+}
+
+func (o *keyTreeOptions) AddFlags(*pflag.FlagSet) {}
+func (o *keyTreeOptions) Complete() error         { return nil }
+func (o *keyTreeOptions) Validate() error         { return nil }
+
+func TestLoadKeyTree(t *testing.T) {
+	tests := []struct {
+		desc    string
+		file    string
+		want    *keyTreeOptions
+		wantErr string
+	}{
+		{
+			desc: "nested", file: "server:\n  port: 5\nentries:\n  foo:\n    name: valid\n",
+			want: &keyTreeOptions{Server: serverOptions{Port: 5}, Entries: map[string]entry{"foo": {Name: "valid"}}},
+		},
+		{
+			desc: "dotted", file: "server.port: 5\nentries.foo.name: valid\n",
+			want: &keyTreeOptions{Server: serverOptions{Port: 5}, Entries: map[string]entry{"foo": {Name: "valid"}}},
+		},
+		{
+			desc: "dotted and nested merge", file: "entries.foo.name: a\nentries:\n  bar:\n    name: b\n",
+			want: &keyTreeOptions{Server: serverOptions{Port: 1}, Entries: map[string]entry{"foo": {Name: "a"}, "bar": {Name: "b"}}},
+		},
+		{desc: "key below a scalar", file: "server.port.typo: 5\n", wantErr: "server.port.typo"},
+		{desc: "nested key below a scalar", file: "server:\n  port:\n    typo: 5\n", wantErr: "server.port.typo"},
+		{desc: "typo in a dotted map entry", file: "entries.foo.nmae: x\n", wantErr: "entries.foo.nmae"},
+		{desc: "same key twice", file: "server.port: 5\nserver:\n  port: 6\n", wantErr: "server.port"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			opts := &keyTreeOptions{Server: serverOptions{Port: 1}}
+
+			err := load(t, opts, writeFile(t, "config.yaml", tt.file))
+
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, opts)
+		})
+	}
+}
+
+type viewOptions struct {
+	Items []any `mapstructure:"items"`
+}
+
+func TestRedactedPrintsSliceViewsThatShareStorage(t *testing.T) {
+	// The second element is a shorter view of the same storage, not a cycle.
+	items := []any{"visible", nil}
+	items[1] = items[:1]
+
+	got := config.Redacted(&viewOptions{Items: items})
+
+	assert.Equal(t, []any{"visible", []any{"visible"}}, got["items"])
+}

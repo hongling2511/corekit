@@ -282,6 +282,8 @@ func TestUnknownConfigFileKeyExitsNonZero(t *testing.T) {
 		{"log:\n  leve1: error\n", "log.leve1"},
 		{"log:\n  leve1: {}\n", "log.leve1"},
 		{"bogus: {}\n", "bogus"},
+		{"log.level.typo: debug\n", "log.level.typo"},
+		{"log.leve1: debug\n", "log.leve1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.want+" in "+strings.TrimSpace(tt.file), func(t *testing.T) {
