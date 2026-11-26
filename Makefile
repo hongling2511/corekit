@@ -25,7 +25,7 @@ lint: $(GOLANGCI_LINT) $(GOVULNCHECK)
 gen:
 	go generate ./...
 
-# No runnable binary yet; the sample service arrives in a later stage.
+# The sample binary (cmd/sample) has no long-running service yet; `serve` arrives in a later stage.
 run:
 	@echo "run: nothing to run yet"
 

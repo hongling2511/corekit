@@ -10,9 +10,9 @@ The library is organised in three layers. Imports may only point downward: role 
 |---|---|---|
 | Role | `httpx` `grpcx` `worker` `cron` | capability, foundation, third-party libraries; not another role package |
 | Capability | `middleware` `auth` `db` `redisx` `obs` | foundation, third-party libraries; not the role layer, not another capability package |
-| Foundation | `app` `config` `log` `errx` `version` | the standard library and `cobra`, `pflag`, `viper` only; `app` also imports the other four foundation packages |
+| Foundation | `app` `config` `log` `errx` `version` | the standard library and `cobra`, `pflag` only, plus `viper` inside `config`; `app` also imports the other four foundation packages |
 
-Within the foundation layer, `config`, `log`, `errx` and `version` do not import each other or `app`, even in their tests, so each one can be used on its own. Each may import only the standard library, exactly `cobra`, `pflag` and `viper`, and its own subpackages; tests may also use testify. Only `app`, the start-up pipeline, imports the other four to assemble them. Every package may import its own subpackages.
+Within the foundation layer, `config`, `log`, `errx` and `version` do not import each other or `app`, even in their tests, so each one can be used on its own. Each may import only the standard library, exactly `cobra` and `pflag` (and `viper`, in `config` only), and its own subpackages; tests may also use testify. Only `app`, the start-up pipeline, imports the other four to assemble them. Every package may import its own subpackages.
 
 Heavy dependencies such as gin, gorm, go-redis, casbin and asynq belong to the capability and role packages that need them, never to the foundation layer.
 

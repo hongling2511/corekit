@@ -37,7 +37,7 @@ linters:
             - github.com/stretchr/testify/
             - github.com/hongling2511/corekit/config$
             - github.com/hongling2511/corekit/config/
-        # log: stdlib, exactly cobra/pflag/viper, and its own package tree; no other corekit package.
+        # log: stdlib, exactly cobra/pflag (viper stays inside config), and its own package tree; no other corekit package.
         foundation-log:
           list-mode: strict
           files:
@@ -47,7 +47,6 @@ linters:
             - $gostd
             - github.com/spf13/cobra$
             - github.com/spf13/pflag$
-            - github.com/spf13/viper$
             - github.com/hongling2511/corekit/log$
             - github.com/hongling2511/corekit/log/
         # log tests: the same plus testify subpackages.
@@ -59,11 +58,10 @@ linters:
             - $gostd
             - github.com/spf13/cobra$
             - github.com/spf13/pflag$
-            - github.com/spf13/viper$
             - github.com/stretchr/testify/
             - github.com/hongling2511/corekit/log$
             - github.com/hongling2511/corekit/log/
-        # errx: stdlib, exactly cobra/pflag/viper, and its own package tree; no other corekit package.
+        # errx: stdlib, exactly cobra/pflag (viper stays inside config), and its own package tree; no other corekit package.
         foundation-errx:
           list-mode: strict
           files:
@@ -73,7 +71,6 @@ linters:
             - $gostd
             - github.com/spf13/cobra$
             - github.com/spf13/pflag$
-            - github.com/spf13/viper$
             - github.com/hongling2511/corekit/errx$
             - github.com/hongling2511/corekit/errx/
         # errx tests: the same plus testify subpackages.
@@ -85,11 +82,10 @@ linters:
             - $gostd
             - github.com/spf13/cobra$
             - github.com/spf13/pflag$
-            - github.com/spf13/viper$
             - github.com/stretchr/testify/
             - github.com/hongling2511/corekit/errx$
             - github.com/hongling2511/corekit/errx/
-        # version: stdlib, exactly cobra/pflag/viper, and its own package tree; no other corekit package.
+        # version: stdlib, exactly cobra/pflag (viper stays inside config), and its own package tree; no other corekit package.
         foundation-version:
           list-mode: strict
           files:
@@ -99,7 +95,6 @@ linters:
             - $gostd
             - github.com/spf13/cobra$
             - github.com/spf13/pflag$
-            - github.com/spf13/viper$
             - github.com/hongling2511/corekit/version$
             - github.com/hongling2511/corekit/version/
         # version tests: the same plus testify subpackages.
@@ -111,11 +106,11 @@ linters:
             - $gostd
             - github.com/spf13/cobra$
             - github.com/spf13/pflag$
-            - github.com/spf13/viper$
             - github.com/stretchr/testify/
             - github.com/hongling2511/corekit/version$
             - github.com/hongling2511/corekit/version/
-        # app (the start-up pipeline) assembles the four standalone foundation packages.
+        # app (the start-up pipeline) assembles the four standalone foundation packages;
+        # it reaches viper only through config.
         app:
           list-mode: strict
           files:
@@ -125,7 +120,6 @@ linters:
             - $gostd
             - github.com/spf13/cobra$
             - github.com/spf13/pflag$
-            - github.com/spf13/viper$
             - github.com/hongling2511/corekit/app$
             - github.com/hongling2511/corekit/app/
             - github.com/hongling2511/corekit/config$
@@ -145,7 +139,6 @@ linters:
             - $gostd
             - github.com/spf13/cobra$
             - github.com/spf13/pflag$
-            - github.com/spf13/viper$
             - github.com/stretchr/testify/
             - github.com/hongling2511/corekit/app$
             - github.com/hongling2511/corekit/app/
