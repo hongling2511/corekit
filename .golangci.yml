@@ -1,0 +1,50 @@
+version: "2"
+
+linters:
+  enable:
+    - depguard
+  settings:
+    depguard:
+      # Layering: role -> capability -> foundation. Imports only point downward.
+      rules:
+        # Foundation: standard library plus cobra/pflag/viper, and other foundation packages.
+        foundation:
+          list-mode: strict
+          files:
+            - "**/app/**"
+            - "**/config/**"
+            - "**/log/**"
+            - "**/errx/**"
+            - "**/version/**"
+          allow:
+            - $gostd
+            - github.com/spf13/cobra
+            - github.com/spf13/pflag
+            - github.com/spf13/viper
+            - github.com/hongling2511/corekit/app
+            - github.com/hongling2511/corekit/config
+            - github.com/hongling2511/corekit/log
+            - github.com/hongling2511/corekit/errx
+            - github.com/hongling2511/corekit/version
+        # Capability: may use foundation and third-party libraries, never the role layer.
+        capability:
+          list-mode: lax
+          files:
+            - "**/middleware/**"
+            - "**/auth/**"
+            - "**/db/**"
+            - "**/redisx/**"
+            - "**/obs/**"
+          deny:
+            - pkg: github.com/hongling2511/corekit/httpx
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/grpcx
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/worker
+              desc: capability layer must not import the role layer
+            - pkg: github.com/hongling2511/corekit/cron
+              desc: capability layer must not import the role layer
+
+formatters:
+  enable:
+    - gofumpt
