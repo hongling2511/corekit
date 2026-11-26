@@ -10,15 +10,22 @@ pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([^)]+
 git rev-parse --verify --quiet "$base^{commit}" >/dev/null || { echo "unknown base commit: $base" >&2; exit 1; }
 git rev-parse --verify --quiet "$head^{commit}" >/dev/null || { echo "unknown head commit: $head" >&2; exit 1; }
 
+# Capture the list first so a failed history walk stops the check instead of passing it.
+commits=$(git log --no-merges --format='%H %s' "$base..$head") || {
+  echo "cannot list commits in $base..$head" >&2
+  exit 1
+}
+
 bad=0
 while IFS= read -r line; do
+  [[ -n $line ]] || continue # an empty range has nothing to check
   sha=${line%% *}
   subject=${line#* }
   if [[ ! $subject =~ $pattern ]]; then
     echo "not a Conventional Commit: ${sha:0:12} $subject" >&2
     bad=1
   fi
-done < <(git log --no-merges --format='%H %s' "$base..$head")
+done <<<"$commits"
 
 if [[ $bad -ne 0 ]]; then
   echo "commit subjects must look like 'type(scope)?: description', see https://www.conventionalcommits.org" >&2
