@@ -18,6 +18,12 @@ func WithTraceID(ctx context.Context, traceID string) context.Context {
 	return context.WithValue(ctx, traceIDKey, traceID)
 }
 
+// TraceID returns the trace ID carried by ctx, or "" when there is none.
+func TraceID(ctx context.Context) string {
+	id, _ := ctx.Value(traceIDKey).(string)
+	return id
+}
+
 // WithUserID returns a copy of ctx carrying the user identifier that the
 // context Handler writes as "user_id".
 func WithUserID(ctx context.Context, userID string) context.Context {

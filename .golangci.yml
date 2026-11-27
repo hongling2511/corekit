@@ -20,6 +20,42 @@ linters:
           deny:
             - pkg: github.com/spf13/viper
               desc: viper is used only inside the config package; take a typed options struct instead
+        # gin stays in the HTTP packages: middleware (capability), httpx (role) and
+        # the sample's handlers, which receive gin.Context.
+        gin-only-in-http:
+          list-mode: lax
+          files:
+            - $all
+            - "!${config-path}/middleware/**"
+            - "!${config-path}/httpx/**"
+            - "!${config-path}/cmd/sample/**"
+          deny:
+            - pkg: github.com/gin-gonic/
+              desc: gin is used only in middleware, httpx and HTTP handlers
+        # OpenTelemetry stays in the capability packages that trace: middleware and obs.
+        otel-only-in-middleware-obs:
+          list-mode: lax
+          files:
+            - $all
+            - "!${config-path}/middleware/**"
+            - "!${config-path}/obs/**"
+          deny:
+            - pkg: go.opentelemetry.io/
+              desc: OpenTelemetry is used only in middleware and obs; read the trace ID with log.TraceID
+        # gin.Context stops at the handler: the sample's service layer knows nothing of HTTP.
+        sample-service-no-http:
+          list-mode: lax
+          files:
+            - "${config-path}/cmd/sample/user_service.go"
+          deny:
+            - pkg: github.com/gin-gonic/
+              desc: the service layer takes context.Context and plain structs
+            - pkg: net/http
+              desc: the service layer takes context.Context and plain structs
+            - pkg: github.com/hongling2511/corekit/httpx
+              desc: the service layer takes context.Context and plain structs
+            - pkg: github.com/hongling2511/corekit/middleware
+              desc: the service layer takes context.Context and plain structs
         # config: stdlib, exactly cobra/pflag/viper, and its own package tree; no other corekit package.
         foundation-config:
           list-mode: strict

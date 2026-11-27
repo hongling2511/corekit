@@ -25,7 +25,7 @@ lint: $(GOLANGCI_LINT) $(GOVULNCHECK)
 gen:
 	go generate ./...
 
-# Runs the sample service (placeholder components until real services exist) until SIGINT or SIGTERM.
+# Runs the sample service (its HTTP API on http.addr, default :8080) until SIGINT or SIGTERM.
 run:
 	go run ./cmd/sample serve
 

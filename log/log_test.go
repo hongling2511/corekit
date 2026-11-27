@@ -122,3 +122,8 @@ func TestNewCompletesBeforeValidating(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, logger)
 }
+
+func TestTraceIDReadsWhatWithTraceIDStored(t *testing.T) {
+	assert.Empty(t, log.TraceID(context.Background()))
+	assert.Equal(t, "t-1", log.TraceID(log.WithTraceID(context.Background(), "t-1")))
+}

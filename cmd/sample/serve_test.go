@@ -21,6 +21,9 @@ import (
 type logLine struct {
 	Msg       string `json:"msg"`
 	Component string `json:"component"`
+	TraceID   string `json:"trace_id"`
+	Status    int    `json:"status"`
+	Route     string `json:"route"`
 	raw       string
 }
 
@@ -51,10 +54,11 @@ type serving struct {
 	seen   []logLine
 }
 
-// startServe starts `sample serve` with args and a clean environment plus env.
+// startServe starts `sample serve` on a random local port with args and a
+// clean environment plus env.
 func startServe(t *testing.T, env []string, args ...string) *serving {
 	t.Helper()
-	cmd := exec.Command(sampleBinary(t), append([]string{"serve"}, args...)...)
+	cmd := exec.Command(sampleBinary(t), append([]string{"serve", "--http.addr=127.0.0.1:0"}, args...)...)
 	cmd.Dir = t.TempDir()
 	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}, env...)
 	stdout, err := cmd.StdoutPipe()
@@ -81,8 +85,9 @@ func startServe(t *testing.T, env []string, args ...string) *serving {
 	return s
 }
 
-// waitFor reads log lines until one has msg and component (if not empty).
-func (s *serving) waitFor(t *testing.T, msg, component string) {
+// waitFor reads log lines until one has msg and component (if not empty),
+// and returns it.
+func (s *serving) waitFor(t *testing.T, msg, component string) logLine {
 	t.Helper()
 	timeout := time.After(10 * time.Second)
 	for {
@@ -93,7 +98,7 @@ func (s *serving) waitFor(t *testing.T, msg, component string) {
 			}
 			s.seen = append(s.seen, l)
 			if l.Msg == msg && (component == "" || l.Component == component) {
-				return
+				return l
 			}
 		case <-timeout:
 			t.Fatalf("serve did not log %q %q", msg, component)
@@ -148,12 +153,12 @@ func TestServeStopsInReverseOrderOnSignal(t *testing.T) {
 
 			assert.Equal(t, 0, code, s.stderr.String())
 			assert.Equal(t, []string{
-				"component starting first",
+				"component starting http",
 				"component starting second",
 				"component stopping second",
 				"component stopped second",
-				"component stopping first",
-				"component stopped first",
+				"component stopping http",
+				"component stopped http",
 			}, events)
 		})
 	}
@@ -171,7 +176,7 @@ func TestServeExitsWhenAComponentHangsPastTheShutdownTimeout(t *testing.T) {
 	assert.Less(t, time.Since(began), 5*time.Second)
 	assert.Contains(t, s.stderr.String(), "stop timed out after 200ms")
 	assert.Equal(t, []string{
-		"component starting first",
+		"component starting http",
 		"component starting second",
 		"component stopping second",
 	}, events)
@@ -185,11 +190,11 @@ func TestServeStopsTheOthersWhenAComponentFails(t *testing.T) {
 	assert.NotEqual(t, 0, code)
 	assert.Contains(t, s.stderr.String(), "component second: demo failure")
 	assert.Equal(t, []string{
-		"component starting first",
+		"component starting http",
 		"component starting second",
 		"component failed second",
-		"component stopping first",
-		"component stopped first",
+		"component stopping http",
+		"component stopped http",
 	}, events)
 }
 
@@ -215,7 +220,7 @@ func TestServeSecondSignalEndsTheProcessAtOnce(t *testing.T) {
 }
 
 func TestInvalidDemoSettingsAreRejected(t *testing.T) {
-	for _, env := range []string{"SAMPLE_DEMO_FAIL=-1s", "SAMPLE_DEMO_FAIL=soon", "SAMPLE_DEMO_HANG=maybe"} {
+	for _, env := range []string{"SAMPLE_DEMO_FAIL=-1s", "SAMPLE_DEMO_FAIL=soon", "SAMPLE_DEMO_HANG=maybe", "SAMPLE_DEMO_ROUTES=maybe"} {
 		t.Run(env, func(t *testing.T) {
 			r := run(t, []string{env}, "serve")
 
