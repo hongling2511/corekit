@@ -184,3 +184,32 @@ func TestMarkdownKeepsEachCodeOnOneLine(t *testing.T) {
 	require.Equal(t, 990301, errMultiline.Code())
 	assert.Contains(t, errx.Markdown(), "| 990301 | 400 | 3 | line one line two line \\| three |\n")
 }
+
+func TestNilCodeWrapBehavesAsInternal(t *testing.T) {
+	var nilCode *errx.Code
+	root := fs.ErrNotExist
+	tests := map[string]struct {
+		cause error
+		text  string
+	}{
+		"without cause": {nil, "100001 internal error: detail"},
+		"with cause":    {root, "100001 internal error: detail: " + root.Error()},
+	}
+	for desc, tt := range tests {
+		t.Run(desc, func(t *testing.T) {
+			err := nilCode.Wrap(tt.cause, "detail")
+
+			assert.Equal(t, tt.text, err.Error())
+			assert.Equal(t, tt.cause, errors.Unwrap(err))
+			if tt.cause != nil {
+				assert.ErrorIs(t, err, tt.cause, "the root cause stays in the chain")
+			}
+			assert.ErrorIs(t, err, errx.ErrInternal)
+			var target *errx.Code
+			assert.False(t, errors.As(err, &target))
+			got := errx.Translate(err)
+			assert.Same(t, errx.ErrInternal, got)
+			assert.Equal(t, "internal error", got.Message())
+		})
+	}
+}
