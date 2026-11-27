@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/hongling2511/corekit/errx"
 )
@@ -178,5 +179,6 @@ func TestTranslateUnregisteredCodeValueIsInternal(t *testing.T) {
 var errMultiline = errx.Register(990301, http.StatusBadRequest, "line one\r\nline two\nline | three")
 
 func TestMarkdownKeepsEachCodeOnOneLine(t *testing.T) {
+	require.Equal(t, 990301, errMultiline.Code())
 	assert.Contains(t, errx.Markdown(), "| 990301 | 400 | 3 | line one line two line \\| three |\n")
 }
