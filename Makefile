@@ -25,9 +25,9 @@ lint: $(GOLANGCI_LINT) $(GOVULNCHECK)
 gen:
 	go generate ./...
 
-# The sample binary (cmd/sample) has no long-running service yet; `serve` arrives in a later stage.
+# Runs the sample service (placeholder components until real services exist) until SIGINT or SIGTERM.
 run:
-	@echo "run: nothing to run yet"
+	go run ./cmd/sample serve
 
 # No image yet; the Dockerfile arrives in a later stage.
 docker:
