@@ -7,6 +7,7 @@
 package errx
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"net/http"
@@ -145,7 +146,7 @@ func Markdown() string {
 		codes = append(codes, c)
 	}
 	mu.Unlock()
-	slices.SortFunc(codes, func(a, b *Code) int { return a.code - b.code })
+	slices.SortFunc(codes, func(a, b *Code) int { return cmp.Compare(a.code, b.code) })
 
 	var b strings.Builder
 	b.WriteString("# Error codes\n\n")

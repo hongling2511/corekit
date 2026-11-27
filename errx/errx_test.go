@@ -108,37 +108,37 @@ func TestRegisterRejectsMalformedCodes(t *testing.T) {
 			assert.Panics(t, func() { _ = errx.Register(tt.code, tt.httpStatus, "bad") })
 		})
 	}
-	assert.NotPanics(t, func() { _ = errx.Register(990102, http.StatusBadRequest, "good") },
-		"rejected registrations leave the code free")
+}
+
+// grpcCases are registered once at package level, so the tests can run
+// repeatedly in one process (go test -count=N).
+//
+// Expected values are google.golang.org/grpc/codes numbers, following the
+// HTTP mapping documented in google/rpc/code.proto.
+var grpcCases = []struct {
+	code *errx.Code
+	want uint32
+}{
+	{errx.Register(990201, http.StatusBadRequest, "grpc mapping"), 3},           // InvalidArgument
+	{errx.Register(990202, http.StatusUnauthorized, "grpc mapping"), 16},        // Unauthenticated
+	{errx.Register(990203, http.StatusForbidden, "grpc mapping"), 7},            // PermissionDenied
+	{errx.Register(990204, http.StatusNotFound, "grpc mapping"), 5},             // NotFound
+	{errx.Register(990205, http.StatusConflict, "grpc mapping"), 6},             // AlreadyExists
+	{errx.Register(990206, http.StatusPreconditionFailed, "grpc mapping"), 9},   // FailedPrecondition
+	{errx.Register(990207, http.StatusTooManyRequests, "grpc mapping"), 8},      // ResourceExhausted
+	{errx.Register(990208, 499, "grpc mapping"), 1},                             // Canceled (client closed request)
+	{errx.Register(990209, http.StatusInternalServerError, "grpc mapping"), 13}, // Internal
+	{errx.Register(990210, http.StatusNotImplemented, "grpc mapping"), 12},      // Unimplemented
+	{errx.Register(990211, http.StatusServiceUnavailable, "grpc mapping"), 14},  // Unavailable
+	{errx.Register(990212, http.StatusGatewayTimeout, "grpc mapping"), 4},       // DeadlineExceeded
+	{errx.Register(990213, http.StatusTeapot, "grpc mapping"), 2},               // Unknown: no mapping
+	{errx.Register(990214, http.StatusBadGateway, "grpc mapping"), 2},           // Unknown: no mapping
 }
 
 func TestGRPCCodeDerivedFromHTTPStatus(t *testing.T) {
-	// Expected values are google.golang.org/grpc/codes numbers, following the
-	// HTTP mapping documented in google/rpc/code.proto.
-	tests := []struct {
-		httpStatus int
-		want       uint32
-	}{
-		{http.StatusBadRequest, 3},           // InvalidArgument
-		{http.StatusUnauthorized, 16},        // Unauthenticated
-		{http.StatusForbidden, 7},            // PermissionDenied
-		{http.StatusNotFound, 5},             // NotFound
-		{http.StatusConflict, 6},             // AlreadyExists
-		{http.StatusPreconditionFailed, 9},   // FailedPrecondition
-		{http.StatusTooManyRequests, 8},      // ResourceExhausted
-		{499, 1},                             // Canceled (client closed request)
-		{http.StatusInternalServerError, 13}, // Internal
-		{http.StatusNotImplemented, 12},      // Unimplemented
-		{http.StatusServiceUnavailable, 14},  // Unavailable
-		{http.StatusGatewayTimeout, 4},       // DeadlineExceeded
-		{http.StatusTeapot, 2},               // Unknown: no mapping
-		{http.StatusBadGateway, 2},           // Unknown: no mapping
-	}
-	for i, tt := range tests {
-		t.Run(http.StatusText(tt.httpStatus), func(t *testing.T) {
-			c := errx.Register(990200+i, tt.httpStatus, "grpc mapping")
-
-			assert.Equal(t, tt.want, c.GRPCCode())
+	for _, tt := range grpcCases {
+		t.Run(http.StatusText(tt.code.HTTPStatus()), func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.code.GRPCCode())
 		})
 	}
 }
