@@ -10,16 +10,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUnregisteredMiddlewareFailsStartupNamingIt(t *testing.T) {
+func TestUnregisteredMiddlewareFailsStartupValidationNamingIt(t *testing.T) {
 	// The fixed chain is not configurable: its names are not optional middlewares either.
 	for _, name := range []string{"bogus", "recovery"} {
-		t.Run(name, func(t *testing.T) {
-			r := run(t, nil, "serve", "--http.addr=127.0.0.1:0", "--middleware.enabled="+name)
+		for _, command := range [][]string{{"serve", "--http.addr=127.0.0.1:0"}, {"version"}, {"config", "print"}} {
+			t.Run(name+" "+command[0], func(t *testing.T) {
+				r := run(t, nil, append(command, "--middleware.enabled=served_by,"+name)...)
 
-			assert.NotEqual(t, 0, r.code)
-			assert.Contains(t, r.stderr, `middleware.enabled: unknown middleware "`+name+`"`)
-			assert.NotContains(t, r.stdout, "http server listening")
-		})
+				assert.NotEqual(t, 0, r.code)
+				assert.Contains(t, r.stderr, `middleware.enabled: unknown middleware "`+name+`"`)
+				assert.Empty(t, r.stdout, "validation fails before logging starts and before the subcommand runs")
+			})
+		}
+	}
+}
+
+func TestRegisteredMiddlewareNamesPassStartupValidation(t *testing.T) {
+	for _, command := range [][]string{{"version"}, {"config", "print"}} {
+		r := run(t, nil, append(command, "--middleware.enabled=cors,timeout,ratelimit,served_by")...)
+
+		assert.Equal(t, 0, r.code, r.stderr)
 	}
 }
 
@@ -95,6 +105,17 @@ func TestTimeoutAnswersWithTheTimeoutEnvelope(t *testing.T) {
 
 	fast := request(t, http.MethodGet, base+"/demo/slow?wait=1ms", "")
 	assert.Equal(t, http.StatusOK, fast.status)
+}
+
+func TestRegisteredInternalErrorAfterTheDeadlineKeepsItsCode(t *testing.T) {
+	_, base := startHTTP(t, demoRoutes, "--middleware.enabled=timeout", "--middleware.timeout.duration=50ms")
+
+	// The handler chooses errx.ErrInternal itself, with the deadline error as its cause.
+	r := request(t, http.MethodGet, base+"/demo/slow?wait=5s&on_deadline=internal", "")
+
+	assert.Equal(t, http.StatusInternalServerError, r.status)
+	assert.Equal(t, 100001, r.body.Code)
+	assert.Equal(t, "internal error", r.body.Message)
 }
 
 func TestTimeoutIsOffByDefault(t *testing.T) {

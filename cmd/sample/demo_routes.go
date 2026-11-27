@@ -52,7 +52,8 @@ func addDemoRoutes(r gin.IRouter) {
 	})
 	// /demo/slow?wait=300ms answers after that long. When the request's
 	// deadline passes first it fails with the deadline error, as a call into a
-	// dependency would; with on_deadline=return it returns without an answer.
+	// dependency would; with on_deadline=return it returns without an answer,
+	// and with on_deadline=internal it fails with errx.ErrInternal wrapping it.
 	r.GET("/demo/slow", func(c *gin.Context) {
 		wait, err := time.ParseDuration(c.Query("wait"))
 		if err != nil {
@@ -63,10 +64,16 @@ func addDemoRoutes(r gin.IRouter) {
 		select {
 		case <-time.After(wait):
 		case <-c.Request.Context().Done():
-			if err := c.Request.Context().Err(); errors.Is(err, context.DeadlineExceeded) && c.Query("on_deadline") != "return" {
+			err := c.Request.Context().Err()
+			switch {
+			case !errors.Is(err, context.DeadlineExceeded): // the client is gone
+			case c.Query("on_deadline") == "return":
+			case c.Query("on_deadline") == "internal":
+				httpx.Fail(c, errx.ErrInternal.Wrap(err, "demo slow"))
+			default:
 				httpx.Fail(c, fmt.Errorf("demo slow: %w", err))
 			}
-			return // otherwise the client is gone
+			return
 		}
 		httpx.OK(c, gin.H{"waited": wait.String()})
 	})

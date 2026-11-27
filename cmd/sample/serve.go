@@ -36,9 +36,7 @@ func serveCommand(opts *Options) app.Command {
 			if err != nil {
 				return err
 			}
-			registry := middleware.NewRegistry(&opts.Middleware)
-			registry.Register("served_by", servedBy)
-			optional, err := registry.Build(httpx.Fail)
+			optional, err := opts.middlewares.Build(httpx.Fail)
 			if err != nil {
 				return err
 			}

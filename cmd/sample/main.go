@@ -33,10 +33,15 @@ type Options struct {
 	Middleware middleware.Options  `mapstructure:"middleware"`
 	Token      string              `mapstructure:"token" secret:"true"` // a secret, redacted when printed
 	Labels     map[string]string   `mapstructure:"labels"`              // free-form name/value pairs, set in the config file
+
+	middlewares *middleware.Registry // the optional middlewares; checks middleware.enabled
 }
 
 func newOptions() *Options {
-	return &Options{Log: *log.NewOptions(), Shutdown: *app.NewShutdownOptions(), HTTP: *httpx.NewOptions(), Middleware: *middleware.NewOptions()}
+	o := &Options{Log: *log.NewOptions(), Shutdown: *app.NewShutdownOptions(), HTTP: *httpx.NewOptions(), Middleware: *middleware.NewOptions()}
+	o.middlewares = middleware.NewRegistry(&o.Middleware)
+	o.middlewares.Register("served_by", servedBy)
+	return o
 }
 
 func (o *Options) AddFlags(fs *pflag.FlagSet) {
@@ -52,7 +57,7 @@ func (o *Options) Complete() error {
 }
 
 func (o *Options) Validate() error {
-	return errors.Join(o.Log.Validate(), o.Shutdown.Validate(), o.HTTP.Validate(), o.Middleware.Validate())
+	return errors.Join(o.Log.Validate(), o.Shutdown.Validate(), o.HTTP.Validate(), o.Middleware.Validate(), o.middlewares.Validate())
 }
 
 // Logging hands the log options block to the start-up pipeline.

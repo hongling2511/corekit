@@ -37,7 +37,8 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 func (o *Options) Complete() error { return nil }
 
 // Validate reports every invalid value, naming its key. Whether a name is
-// registered is checked by Registry.Build.
+// registered is checked by Registry.Validate, which the program's options
+// object calls from its own Validate.
 func (o *Options) Validate() error {
 	var errs []error
 	seen := map[string]bool{}
@@ -93,16 +94,29 @@ func (r *Registry) Register(name string, f Factory) {
 	r.factories[name] = f
 }
 
+// Validate reports every name the options enable that is not registered.
+// Call it from the options object's Validate, once the registry holds all
+// of the program's middlewares, so start-up validation rejects the name.
+func (r *Registry) Validate() error {
+	var errs []error
+	for _, name := range r.opts.Enabled {
+		if r.factories[name] == nil {
+			errs = append(errs, fmt.Errorf("middleware.enabled: unknown middleware %q", name))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // Build returns the middlewares the options enable, in their order, each
-// built with fail. A name that is not registered is an error naming it.
+// built with fail. A name that is not registered is an error naming it (see
+// Validate).
 func (r *Registry) Build(fail FailFunc) ([]gin.HandlerFunc, error) {
+	if err := r.Validate(); err != nil {
+		return nil, err
+	}
 	out := make([]gin.HandlerFunc, 0, len(r.opts.Enabled))
 	for _, name := range r.opts.Enabled {
-		f, ok := r.factories[name]
-		if !ok {
-			return nil, fmt.Errorf("middleware.enabled: unknown middleware %q", name)
-		}
-		out = append(out, f(fail))
+		out = append(out, r.factories[name](fail))
 	}
 	return out, nil
 }

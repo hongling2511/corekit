@@ -50,7 +50,8 @@ func List[T any](c *gin.Context, items []T, total int) {
 // error itself, with its internal details, goes only to the log. When the
 // response has already been written, Fail only logs.
 //
-// A context.DeadlineExceeded without a registered code, failed after the
+// A context.DeadlineExceeded without a registered code (errx.ErrInternal
+// chosen explicitly is kept), failed after the
 // request's own deadline (see middleware.Timeout) has passed, answers as
 // errx.ErrRequestTimeout.
 func Fail(c *gin.Context, err error) {
@@ -59,7 +60,8 @@ func Fail(c *gin.Context, err error) {
 	}
 	code := errx.Translate(err)
 	ctx := c.Request.Context()
-	if code == errx.ErrInternal && errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+	if fallback := code == errx.ErrInternal && !errors.Is(err, errx.ErrInternal); fallback &&
+		errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		code = errx.ErrRequestTimeout
 	}
 	level := slog.LevelWarn
