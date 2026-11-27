@@ -168,7 +168,42 @@ func TestConfigPrintShowsEffectiveConfig(t *testing.T) {
 		"http.tls.cert_file": "",
 		"http.tls.key_file":  "",
 		"token":              "",
+		"labels":             nil,
 	}, got)
+}
+
+// writeConfig writes body to a temporary sample.yaml and returns its path.
+func writeConfig(t *testing.T, body string) string {
+	t.Helper()
+	file := filepath.Join(t.TempDir(), "sample.yaml")
+	require.NoError(t, os.WriteFile(file, []byte(body), 0o600))
+	return file
+}
+
+func TestConfigPrintMapField(t *testing.T) {
+	t.Run("explicit null exits non-zero naming the key", func(t *testing.T) {
+		r := run(t, nil, "config", "print", "--config", writeConfig(t, "labels: null\n"))
+
+		assert.NotEqual(t, 0, r.code)
+		assert.Contains(t, r.stderr, "key labels: expected a mapping, got null")
+		assert.Empty(t, r.stdout, "the subcommand must not run")
+	})
+	t.Run("empty mapping prints as empty", func(t *testing.T) {
+		got := printedConfig(t, nil, "--config", writeConfig(t, "labels: {}\n"))
+
+		assert.Equal(t, map[string]any{}, got["labels"])
+	})
+	t.Run("mapping prints its entries", func(t *testing.T) {
+		got := printedConfig(t, nil, "--config", writeConfig(t, "labels: {team: core}\n"))
+
+		assert.Equal(t, map[string]any{"team": "core"}, got["labels"])
+	})
+	t.Run("absent key prints as null", func(t *testing.T) {
+		got := printedConfig(t, nil, "--config", writeConfig(t, "token: x\n"))
+
+		assert.Contains(t, got, "labels")
+		assert.Nil(t, got["labels"])
+	})
 }
 
 func TestOpsCommandsLogStartupToStderr(t *testing.T) {
