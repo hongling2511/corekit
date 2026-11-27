@@ -3,6 +3,8 @@ package obs
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -77,10 +79,14 @@ func pprofProfile(w http.ResponseWriter, r *http.Request) {
 	_ = p.WriteTo(w, debug)
 }
 
-// deltaProfiles are the profiles whose ?seconds=N delta is meaningful.
-var deltaProfiles = map[string]bool{
-	"allocs": true, "block": true, "goroutineleak": true, "goroutine": true,
-	"heap": true, "mutex": true, "threadcreate": true,
+// supportsDelta reports whether the ?seconds=N delta of a profile is
+// meaningful.
+func supportsDelta(name string) bool {
+	switch name {
+	case "allocs", "block", "goroutineleak", "goroutine", "heap", "mutex", "threadcreate":
+		return true
+	}
+	return false
 }
 
 // pprofDelta collects p, waits sec seconds, collects it again and answers
@@ -91,7 +97,7 @@ func pprofDelta(w http.ResponseWriter, r *http.Request, p *pprof.Profile, sec st
 	case err != nil || n <= 0:
 		pprofError(w, http.StatusBadRequest, `invalid value for "seconds" - must be a positive integer`)
 		return
-	case !deltaProfiles[p.Name()]:
+	case !supportsDelta(p.Name()):
 		pprofError(w, http.StatusBadRequest, `"seconds" parameter is not supported for this profile type`)
 		return
 	}
@@ -104,10 +110,16 @@ func pprofDelta(w http.ResponseWriter, r *http.Request, p *pprof.Profile, sec st
 		pprofError(w, http.StatusInternalServerError, "failed to collect profile")
 		return
 	}
+	t := time.NewTimer(time.Duration(n) * time.Second)
+	defer t.Stop()
 	select {
-	case <-time.After(time.Duration(n) * time.Second):
+	case <-t.C:
 	case <-r.Context().Done():
-		pprofError(w, http.StatusInternalServerError, r.Context().Err().Error())
+		status := http.StatusInternalServerError
+		if errors.Is(r.Context().Err(), context.DeadlineExceeded) {
+			status = http.StatusRequestTimeout
+		}
+		pprofError(w, status, r.Context().Err().Error())
 		return
 	}
 	p1, err := collectProfile(p)
@@ -153,46 +165,61 @@ func pprofError(w http.ResponseWriter, status int, msg string) {
 }
 
 func pprofCmdline(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = io.WriteString(w, strings.Join(os.Args, "\x00"))
 }
 
-// seconds reads ?seconds=N (fractions allowed), falling back to def.
-func seconds(r *http.Request, def float64) time.Duration {
-	if n, err := strconv.ParseFloat(r.FormValue("seconds"), 64); err == nil && n > 0 {
-		def = n
-	}
-	return time.Duration(def * float64(time.Second))
-}
-
-// collect runs start, waits d (or until the client leaves) and runs stop;
-// the result is buffered so a failure can still answer with an error.
-func collect(w http.ResponseWriter, r *http.Request, d time.Duration, start func(io.Writer) error, stop func()) {
-	var buf bytes.Buffer
-	if err := start(&buf); err != nil {
-		http.Error(w, "could not start profiling: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+// pprofSleep waits d, or until the client leaves.
+func pprofSleep(r *http.Request, d time.Duration) {
+	t := time.NewTimer(d)
+	defer t.Stop()
 	select {
-	case <-time.After(d):
+	case <-t.C:
 	case <-r.Context().Done():
 	}
-	stop()
-	w.Header().Set("Content-Type", "application/octet-stream")
-	_, _ = w.Write(buf.Bytes())
 }
 
+// pprofCPU serves a CPU profile over ?seconds=N (an integer, default 30).
 func pprofCPU(w http.ResponseWriter, r *http.Request) {
-	collect(w, r, seconds(r, 30), pprof.StartCPUProfile, pprof.StopCPUProfile)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	sec, err := strconv.ParseInt(r.FormValue("seconds"), 10, 64)
+	if sec <= 0 || err != nil {
+		sec = 30
+	}
+	// Set assuming StartCPUProfile works, because then it starts writing.
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", `attachment; filename="profile"`)
+	if err := pprof.StartCPUProfile(w); err != nil {
+		pprofError(w, http.StatusInternalServerError, "Could not enable CPU profiling: "+err.Error())
+		return
+	}
+	pprofSleep(r, time.Duration(sec)*time.Second)
+	pprof.StopCPUProfile()
 }
 
+// pprofTrace serves an execution trace over ?seconds=N (fractions allowed,
+// default 1).
 func pprofTrace(w http.ResponseWriter, r *http.Request) {
-	collect(w, r, seconds(r, 1), trace.Start, trace.Stop)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	sec, err := strconv.ParseFloat(r.FormValue("seconds"), 64)
+	if sec <= 0 || err != nil {
+		sec = 1
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", `attachment; filename="trace"`)
+	if err := trace.Start(w); err != nil {
+		pprofError(w, http.StatusInternalServerError, "Could not enable tracing: "+err.Error())
+		return
+	}
+	pprofSleep(r, time.Duration(sec*float64(time.Second)))
+	trace.Stop()
 }
 
 // pprofSymbol answers GET with the symbol table's presence and POST, a
 // "+"-separated list of hex program counters, with their function names.
 func pprofSymbol(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	var b strings.Builder
 	b.WriteString("num_symbols: 1\n")

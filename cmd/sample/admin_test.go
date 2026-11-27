@@ -289,14 +289,24 @@ func TestNamedProfilesWithSecondsAreDeltasOverThatWindow(t *testing.T) {
 	for range 50 { // allocations before the window
 		request(t, http.MethodGet, base+"/users", "")
 	}
-	absolute := fetchProfile(t, admin+"/debug/pprof/allocs")
-
+	fetchProfile(t, admin+"/debug/pprof/heap?gc=1")
+	idle := fetchProfile(t, admin+"/debug/pprof/allocs?seconds=1")
+	busy := make(chan *profile.Profile, 1)
 	began := time.Now()
-	delta := fetchProfile(t, admin+"/debug/pprof/allocs?seconds=1")
+	go func() { busy <- fetchProfile(t, admin+"/debug/pprof/allocs?seconds=2") }()
+	time.Sleep(200 * time.Millisecond)
+	for range 200 { // allocations within the window
+		request(t, http.MethodPost, base+"/users", `{"name": "ada"}`)
+	}
+	// Allocation profiles show the state as of the last garbage collection.
+	fetchProfile(t, admin+"/debug/pprof/heap?gc=1")
+	delta := <-busy
+	absolute := fetchProfile(t, admin+"/debug/pprof/allocs") // everything since start-up
 
-	assert.GreaterOrEqual(t, time.Since(began), time.Second, "the profile covers the window")
-	assert.GreaterOrEqual(t, delta.DurationNanos, int64(time.Second))
-	assert.Less(t, total(t, delta, "alloc_space"), total(t, absolute, "alloc_space"), "only what was allocated within the window")
+	assert.GreaterOrEqual(t, time.Since(began), 2*time.Second, "the profile covers the window")
+	assert.GreaterOrEqual(t, delta.DurationNanos, int64(2*time.Second))
+	assert.Less(t, total(t, delta, "alloc_space"), total(t, absolute, "alloc_space"), "what was allocated before the window is left out")
+	assert.Greater(t, total(t, delta, "alloc_objects"), total(t, idle, "alloc_objects"), "what was allocated within the window shows")
 	for _, name := range []string{"heap", "goroutine"} {
 		p := fetchProfile(t, admin+"/debug/pprof/"+name+"?seconds=1")
 		assert.GreaterOrEqual(t, p.DurationNanos, int64(time.Second), name)
@@ -332,7 +342,7 @@ func TestReadinessFailsAtOnceOnStopWhileTheServiceKeepsServingThroughTheDrainWin
 
 	began := time.Now()
 	require.NoError(t, s.cmd.Process.Signal(syscall.SIGTERM))
-	s.waitFor(t, "stopping components", "")
+	s.waitFor(t, "draining", "")
 
 	ready, body := get(t, admin+"/readyz")
 	live, _ := get(t, admin+"/livez")
