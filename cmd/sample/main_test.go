@@ -160,6 +160,7 @@ func TestConfigPrintShowsEffectiveConfig(t *testing.T) {
 		"log.format": "json",
 		"log.output": "stdout",
 		// time.Duration prints as its underlying nanoseconds.
+		"shutdown.drain_window":   float64(0),
 		"shutdown.timeout":        float64(30 * time.Second),
 		"http.addr":               ":8080",
 		"http.read_timeout":       float64(30 * time.Second),

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -322,4 +323,44 @@ func TestHeapProfileCollectsGarbageOnlyWhenGCIsPositive(t *testing.T) {
 	assert.Equal(t, before, gcs(), "no garbage collection")
 	fetchProfile(t, admin+"/debug/pprof/heap?gc=1")
 	assert.Equal(t, before+1, gcs(), "gc=1 collects once")
+}
+
+func TestReadinessFailsAtOnceOnStopWhileTheServiceKeepsServingThroughTheDrainWindow(t *testing.T) {
+	s, base, admin := startBoth(t, nil, "--shutdown.drain_window=1s")
+	ready, _ := get(t, admin+"/readyz")
+	require.Equal(t, http.StatusOK, ready)
+
+	began := time.Now()
+	require.NoError(t, s.cmd.Process.Signal(syscall.SIGTERM))
+	s.waitFor(t, "stopping components", "")
+
+	ready, body := get(t, admin+"/readyz")
+	live, _ := get(t, admin+"/livez")
+	served := request(t, http.MethodGet, base+"/users", "")
+	inWindow := time.Since(began)
+	code, events := s.exit(t)
+
+	assert.Equal(t, http.StatusServiceUnavailable, ready)
+	assert.Equal(t, "shutting down\n", body)
+	assert.Equal(t, http.StatusOK, live)
+	assert.Equal(t, http.StatusOK, served.status, "the business port still takes new requests")
+	assert.Less(t, inWindow, time.Second, "all of the above happened within the window")
+	assert.GreaterOrEqual(t, time.Since(began), time.Second, "the components stop after the window")
+	assert.Equal(t, 0, code, s.stderr.String())
+	assert.Contains(t, events, "component stopped http")
+}
+
+func TestDrainWindowMustFitInTheShutdownTimeout(t *testing.T) {
+	for _, args := range [][]string{
+		{"--shutdown.drain_window=-1s"},
+		{"--shutdown.drain_window=30s"},
+		{"--shutdown.drain_window=2s", "--shutdown.timeout=1s"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			r := run(t, nil, append([]string{"serve", "--http.addr=127.0.0.1:0", "--admin.addr=127.0.0.1:0"}, args...)...)
+
+			assert.NotEqual(t, 0, r.code)
+			assert.Contains(t, r.stderr, "shutdown.drain_window")
+		})
+	}
 }

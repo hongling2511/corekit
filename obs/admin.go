@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -62,7 +63,8 @@ func (o *AdminOptions) Validate() error {
 //   - /livez: the process is alive, always 200;
 //   - /readyz: the dependencies are ready, 200 when every readiness check
 //     passes within the readiness timeout, otherwise 503 naming each failed
-//     check (the reasons go to the log);
+//     check (the reasons go to the log); 503 "shutting down" once the stop
+//     has begun (see Drain);
 //   - /metrics: the metrics, in the Prometheus text format;
 //   - /version: the build information, as the version command prints it;
 //   - /debug/pprof: the runtime profiles, unless turned off.
@@ -74,6 +76,7 @@ type Admin struct {
 	readinessTimeout time.Duration
 	srv              *http.Server
 	checks           []readinessCheck
+	shuttingDown     atomic.Bool // set by Drain's Stop: /readyz answers 503 from then on
 }
 
 type readinessCheck struct {
@@ -110,6 +113,12 @@ func (a *Admin) AddReadinessCheck(name string, check func(ctx context.Context) e
 }
 
 func (a *Admin) readyz(w http.ResponseWriter, r *http.Request) {
+	if a.shuttingDown.Load() {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = io.WriteString(w, "shutting down\n")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), a.readinessTimeout)
 	defer cancel()
 	// Each check runs on its own, so one that ignores ctx cannot hold the
@@ -161,6 +170,43 @@ func runCheck(ctx context.Context, check func(ctx context.Context) error) (err e
 		}
 	}()
 	return check(ctx)
+}
+
+// Drain returns the component that begins the stop. Run it last, so it
+// stops first: its Stop makes /readyz answer 503 "shutting down" at once,
+// then waits window, or until its context is done, while every other
+// component keeps serving, so load balancers take the process out of
+// rotation before it stops taking requests.
+func (a *Admin) Drain(window time.Duration) *Drain {
+	return &Drain{admin: a, window: window}
+}
+
+// Drain is the component Admin.Drain returns.
+type Drain struct {
+	admin  *Admin
+	window time.Duration
+}
+
+// Name returns "drain".
+func (d *Drain) Name() string { return "drain" }
+
+// Start does nothing until ctx is cancelled.
+func (d *Drain) Start(ctx context.Context) error {
+	<-ctx.Done()
+	return nil
+}
+
+// Stop reports the process not ready and waits the drain window.
+func (d *Drain) Stop(ctx context.Context) error {
+	d.admin.shuttingDown.Store(true)
+	slog.InfoContext(ctx, "draining", "window", d.window.String())
+	t := time.NewTimer(d.window)
+	defer t.Stop()
+	select {
+	case <-t.C:
+	case <-ctx.Done():
+	}
+	return nil
 }
 
 // ServeHTTP serves one management request.

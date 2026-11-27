@@ -102,7 +102,9 @@ func serveCommand(opts *Options) app.Command {
 			for _, c := range checks {
 				admin.AddReadinessCheck(c.name, c.check)
 			}
-			return app.RunComponents(ctx, opts.Shutdown.Timeout, tracer, admin, server, second)
+			// The drain runs last so it stops first: /readyz fails at once and
+			// the others keep serving through the drain window.
+			return app.RunComponents(ctx, opts.Shutdown.Timeout, tracer, admin, server, second, admin.Drain(opts.Shutdown.DrainWindow))
 		},
 	}
 }

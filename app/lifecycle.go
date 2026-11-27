@@ -197,12 +197,18 @@ func (r *runningComponent) stop(ctx context.Context) (exited bool, err error) {
 }
 
 // ShutdownOptions is the shutdown options block. Embed it in an options
-// object under the key "shutdown"; its flag is --shutdown.timeout.
+// object under the key "shutdown"; its flags are --shutdown.timeout and
+// --shutdown.drain_window.
 type ShutdownOptions struct {
 	Timeout time.Duration `mapstructure:"timeout"` // upper bound of the whole stop
+	// DrainWindow is how long the process, once it reports itself not
+	// ready, keeps serving before its components stop, so load balancers
+	// take it out of rotation first. It is part of Timeout.
+	DrainWindow time.Duration `mapstructure:"drain_window"`
 }
 
-// NewShutdownOptions returns the default shutdown options: a 30s timeout.
+// NewShutdownOptions returns the default shutdown options: a 30s timeout,
+// no drain window.
 func NewShutdownOptions() *ShutdownOptions {
 	return &ShutdownOptions{Timeout: 30 * time.Second}
 }
@@ -211,15 +217,22 @@ func NewShutdownOptions() *ShutdownOptions {
 func (o *ShutdownOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&o.Timeout, "shutdown.timeout", o.Timeout,
 		"upper bound of the graceful stop, such as 30s (shown in nanoseconds in config print and the start-up log)")
+	fs.DurationVar(&o.DrainWindow, "shutdown.drain_window", o.DrainWindow,
+		"how long to keep serving, reported not ready, before stopping, such as 5s; part of shutdown.timeout")
 }
 
 // Complete does nothing; the block has no derived fields.
 func (o *ShutdownOptions) Complete() error { return nil }
 
-// Validate reports a timeout that is not positive.
+// Validate reports a timeout that is not positive and a drain window that
+// is negative or does not leave time to stop within the timeout.
 func (o *ShutdownOptions) Validate() error {
+	var errs []error
 	if o.Timeout <= 0 {
-		return fmt.Errorf("shutdown.timeout: invalid value %s, want a positive duration", o.Timeout)
+		errs = append(errs, fmt.Errorf("shutdown.timeout: invalid value %s, want a positive duration", o.Timeout))
 	}
-	return nil
+	if o.DrainWindow < 0 || (o.Timeout > 0 && o.DrainWindow >= o.Timeout) {
+		errs = append(errs, fmt.Errorf("shutdown.drain_window: invalid value %s, want at least 0 and less than shutdown.timeout (%s)", o.DrainWindow, o.Timeout))
+	}
+	return errors.Join(errs...)
 }
