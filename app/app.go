@@ -4,8 +4,8 @@
 // Every subcommand runs the same fixed pipeline: parse flags → load the
 // configuration → decode it into the options object → complete → validate →
 // initialise logging → log the version and the redacted effective
-// configuration → run the subcommand. The built-in `version` and
-// `config print` subcommands are always present; they are operations
+// configuration → run the subcommand. The built-in `version`,
+// `config print` and `errcodes` subcommands are always present; they are operations
 // subcommands, so the pipeline logs to stderr for them and their stdout
 // holds only their result. Other subcommands log to log.output.
 package app
@@ -22,6 +22,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/hongling2511/corekit/config"
+	"github.com/hongling2511/corekit/errx"
 	"github.com/hongling2511/corekit/log"
 	"github.com/hongling2511/corekit/version"
 )
@@ -98,6 +99,19 @@ func (a *App) rootCommand() *cobra.Command {
 			},
 		},
 		configCommand(a.opts),
+		&cobra.Command{
+			Use:         "errcodes",
+			Short:       "Print the registered error codes as Markdown",
+			Args:        cobra.NoArgs,
+			Annotations: opsAnnotation,
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				if err := cmd.Context().Err(); err != nil {
+					return err
+				}
+				_, err := io.WriteString(cmd.OutOrStdout(), errx.Markdown())
+				return err
+			},
+		},
 	)
 	for _, c := range a.commands {
 		root.AddCommand(cobraCommand(c))

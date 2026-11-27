@@ -310,3 +310,27 @@ func TestEmptyEnvOverridesConfigFile(t *testing.T) {
 
 	assert.Equal(t, "", got["token"])
 }
+
+func TestErrcodesExportsMarkdown(t *testing.T) {
+	r := run(t, nil, "errcodes")
+
+	require.Equal(t, 0, r.code, r.stderr)
+	assert.True(t, strings.HasPrefix(r.stdout, "# Error codes\n"), r.stdout)
+	assert.Contains(t, r.stdout, "| Code | HTTP status | gRPC code | Message |\n")
+	// A library code and the sample's own business code.
+	assert.Contains(t, r.stdout, "| 100001 | 500 | 13 | internal error |\n")
+	assert.Contains(t, r.stdout, "| 110001 | 404 | 5 | user not found |\n")
+	assert.Less(t, strings.Index(r.stdout, "| 100001 "), strings.Index(r.stdout, "| 110001 "), "rows are sorted by code")
+	assert.NotContains(t, r.stdout, "starting", "the start-up log goes to stderr")
+	assert.Contains(t, r.stderr, `"msg":"starting"`)
+}
+
+func TestErrcodesDocIsUpToDate(t *testing.T) {
+	r := run(t, nil, "errcodes")
+	require.Equal(t, 0, r.code, r.stderr)
+
+	doc, err := os.ReadFile("../../docs/errcodes.md")
+	require.NoError(t, err)
+
+	assert.Equal(t, string(doc), r.stdout, "docs/errcodes.md is stale; run `make gen` and commit the result")
+}
