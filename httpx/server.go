@@ -23,12 +23,15 @@ import (
 
 	"github.com/hongling2511/corekit/errx"
 	"github.com/hongling2511/corekit/middleware"
+	"github.com/hongling2511/corekit/obs"
 )
 
-// Server is an HTTP server component.
+// Server is an HTTP server component. It is also the http.Handler it
+// serves.
 type Server struct {
-	opts Options
-	srv  *http.Server
+	opts    Options
+	srv     *http.Server
+	metrics *obs.HTTPMetrics
 }
 
 // New returns a server configured by opts whose routes are declared by
@@ -37,15 +40,19 @@ type Server struct {
 // cannot be turned off or reordered.
 func New(opts *Options, routes func(r gin.IRouter)) *Server {
 	engine := gin.New()
-	// Metrics has no recorder yet: the measurements are dropped until the
-	// metrics exposure lands.
-	engine.Use(middleware.Recovery(Fail), middleware.Tracing(), middleware.AccessLog(), middleware.Metrics(nil))
+	metrics := obs.NewHTTPMetrics()
+	engine.Use(middleware.Recovery(Fail), middleware.Tracing(), middleware.AccessLog(), middleware.Metrics(metrics))
+	// No automatic redirects (/users/ → /users, case or path fixes): such a
+	// path is unmatched and answers with the envelope like any other.
+	engine.RedirectTrailingSlash = false
+	engine.RedirectFixedPath = false
 	engine.HandleMethodNotAllowed = true
 	engine.NoRoute(func(c *gin.Context) { Fail(c, errx.ErrRouteNotFound) })
 	engine.NoMethod(func(c *gin.Context) { Fail(c, errx.ErrMethodNotAllowed) })
 	routes(engine)
 	return &Server{
-		opts: *opts,
+		opts:    *opts,
+		metrics: metrics,
 		srv: &http.Server{
 			Handler:      engine,
 			ReadTimeout:  opts.ReadTimeout,
@@ -54,6 +61,12 @@ func New(opts *Options, routes func(r gin.IRouter)) *Server {
 		},
 	}
 }
+
+// ServeHTTP serves one request through the fixed chain and the routes.
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.srv.Handler.ServeHTTP(w, r) }
+
+// Metrics returns what the server has recorded per method, route and status.
+func (s *Server) Metrics() []obs.HTTPRequestStats { return s.metrics.Snapshot() }
 
 // Name returns "http".
 func (s *Server) Name() string { return "http" }

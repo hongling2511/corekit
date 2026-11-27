@@ -423,3 +423,83 @@ func TestStdoutHoldsOnlyJSONLogLines(t *testing.T) {
 		assert.True(t, json.Valid([]byte(l.raw)), "not a JSON log line: %q", l.raw)
 	}
 }
+
+// firstResponse sends GET url without following redirects and returns the
+// first response with its body.
+func firstResponse(t *testing.T, url string) (*http.Response, string) {
+	t.Helper()
+	client := &http.Client{
+		Timeout:       10 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Get(url)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	raw, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return resp, string(raw)
+}
+
+func TestPathsGinWouldRedirectAnswerWithTheNotFoundEnvelope(t *testing.T) {
+	s, base := startHTTP(t, nil)
+
+	for _, path := range []string{"/users/", "/USERS", "//users", "/users/../users/"} {
+		t.Run(path, func(t *testing.T) {
+			resp, raw := firstResponse(t, base+path)
+
+			assert.Equal(t, http.StatusNotFound, resp.StatusCode, raw)
+			var body envelope
+			require.NoError(t, json.Unmarshal([]byte(raw), &body), raw)
+			assert.Equal(t, 100006, body.Code)
+			assert.Equal(t, "null", string(body.Data))
+			assert.Equal(t, body.TraceID, resp.Header.Get("X-Trace-Id"))
+			lines := requestLogs(t, s, body.TraceID)
+			assert.NotEmpty(t, lines, "the request ran through the fixed chain")
+		})
+	}
+}
+
+func TestJSONBodyMustBeOneCompleteDocument(t *testing.T) {
+	_, base := startHTTP(t, nil)
+
+	for _, body := range []string{`{"name":"Ada"} xyz`, `{"name":"Ada"}{"name":"Bob"}`, `{"name":"Ada"} {`} {
+		t.Run(body, func(t *testing.T) {
+			r := request(t, http.MethodPost, base+"/users", body)
+
+			assert.Equal(t, http.StatusBadRequest, r.status)
+			assert.Equal(t, 100002, r.body.Code)
+			assert.Equal(t, "null", string(r.body.Data))
+		})
+	}
+	list := request(t, http.MethodGet, base+"/users", "")
+	assert.JSONEq(t, `{"items": [], "total": 0}`, string(list.body.Data), "nothing was created")
+
+	r := request(t, http.MethodPost, base+"/users", "{\"name\":\"Ada\"} \n\t ")
+	assert.Equal(t, http.StatusOK, r.status, "trailing whitespace is fine")
+}
+
+func TestFailureAfterTheResponseIsWrittenOnlyLogs(t *testing.T) {
+	s, base := startHTTP(t, demoRoutes)
+
+	for mode, msg := range map[string]string{"error": "request failed", "panic": "panic recovered"} {
+		t.Run(mode, func(t *testing.T) {
+			resp, raw := firstResponse(t, base+"/demo/late?fail="+mode)
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.Equal(t, "partial", raw, "no envelope is appended")
+			traceID := resp.Header.Get("X-Trace-Id")
+			lines := requestLogs(t, s, traceID) // the access log
+			if mode == "panic" {
+				lines = requestLogs(t, s, traceID, msg) // Recovery logs after it
+			}
+			var msgs []string
+			for _, l := range lines {
+				msgs = append(msgs, l.Msg)
+				if l.Msg == "http request" {
+					assert.Equal(t, http.StatusOK, l.Status, "the access log has the status sent")
+				}
+			}
+			assert.Contains(t, msgs, msg)
+		})
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -38,6 +39,15 @@ func addDemoRoutes(r gin.IRouter) {
 	})
 	r.GET("/demo/panic", func(*gin.Context) {
 		panic("demo panic")
+	})
+	// /demo/late?fail=error|panic writes part of a response, then fails.
+	r.GET("/demo/late", func(c *gin.Context) {
+		c.String(http.StatusOK, "partial")
+		c.Writer.Flush()
+		if c.Query("fail") == "panic" {
+			panic("demo late panic")
+		}
+		httpx.Fail(c, errors.New("demo late failure"))
 	})
 	// /demo/slow?wait=300ms answers after that long.
 	r.GET("/demo/slow", func(c *gin.Context) {
