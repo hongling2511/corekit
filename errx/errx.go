@@ -4,6 +4,11 @@
 //
 // A code has six digits: service (2) + module (2) + sequence (2). The
 // library's own codes use 10xxxx; business projects start at 11xxxx.
+//
+// The registry is package-level state: besides logging, it is the only
+// global state the library holds. Register codes only at start-up, in
+// package-level variable declarations or while main assembles the program,
+// never while serving requests.
 package errx
 
 import (
@@ -18,11 +23,11 @@ import (
 
 // The library's error codes.
 var (
-	ErrInternal         = Register(100001, http.StatusInternalServerError, "internal error")
-	ErrBind             = Register(100002, http.StatusBadRequest, "invalid request parameters")
-	ErrUnauthenticated  = Register(100003, http.StatusUnauthorized, "unauthenticated")
-	ErrPermissionDenied = Register(100004, http.StatusForbidden, "permission denied")
-	ErrDatabase         = Register(100005, http.StatusInternalServerError, "database error")
+	ErrInternal         = register(100001, http.StatusInternalServerError, "internal error")
+	ErrBind             = register(100002, http.StatusBadRequest, "invalid request parameters")
+	ErrUnauthenticated  = register(100003, http.StatusUnauthorized, "unauthenticated")
+	ErrPermissionDenied = register(100004, http.StatusForbidden, "permission denied")
+	ErrDatabase         = register(100005, http.StatusInternalServerError, "database error")
 )
 
 // Code is a registered error code. It is itself an error, so a registered
@@ -104,9 +109,18 @@ var (
 
 // Register declares an error code with the HTTP status (4xx or 5xx) and the
 // message shown to callers. Declare codes as package-level variables:
-// registering a code twice, or a code that is not six digits, is a
-// programming error and panics, so the program fails at start-up.
+// registering a code twice, a code that is not six digits, or a code in the
+// library's 10xxxx range is a programming error and panics, so the program
+// fails at start-up.
 func Register(code, httpStatus int, message string) *Code {
+	if code >= 100000 && code < 110000 {
+		panic(fmt.Sprintf("errx: error code %d is in 10xxxx, which is reserved for the library; business codes start at 110000", code))
+	}
+	return register(code, httpStatus, message)
+}
+
+// register declares a code in any range; the library's own codes use it.
+func register(code, httpStatus int, message string) *Code {
 	if code < 100000 || code > 999999 {
 		panic(fmt.Sprintf("errx: error code %d is not six digits", code))
 	}
@@ -124,21 +138,36 @@ func Register(code, httpStatus int, message string) *Code {
 }
 
 // Translate returns the error code nearest the top of err's chain. An error
-// without a registered code translates to ErrInternal, so its text never
+// without a registered code (including a zero or nil Code) translates to
+// ErrInternal, so its text never
 // reaches callers. Translate(nil) is nil.
 func Translate(err error) *Code {
 	if err == nil {
 		return nil
 	}
 	var c interface{ errxCode() *Code }
-	if errors.As(err, &c) {
+	if errors.As(err, &c) && registered(c.errxCode()) {
 		return c.errxCode()
 	}
 	return ErrInternal
 }
 
+// registered reports whether c was returned by Register, as opposed to a
+// zero or nil Code.
+func registered(c *Code) bool {
+	if c == nil {
+		return false
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	return registry[c.code] == c
+}
+
+// markdownCell keeps a message inside one table cell on one line.
+var markdownCell = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ", "|", `\|`)
+
 // Markdown renders every registered error code as a Markdown table, sorted
-// by code.
+// by code, one line per code.
 func Markdown() string {
 	mu.Lock()
 	codes := make([]*Code, 0, len(registry))
@@ -153,7 +182,7 @@ func Markdown() string {
 	b.WriteString("| Code | HTTP status | gRPC code | Message |\n")
 	b.WriteString("| --- | --- | --- | --- |\n")
 	for _, c := range codes {
-		fmt.Fprintf(&b, "| %d | %d | %d | %s |\n", c.code, c.httpStatus, c.GRPCCode(), strings.ReplaceAll(c.message, "|", `\|`))
+		fmt.Fprintf(&b, "| %d | %d | %d | %s |\n", c.code, c.httpStatus, c.GRPCCode(), markdownCell.Replace(c.message))
 	}
 	return b.String()
 }

@@ -142,3 +142,41 @@ func TestGRPCCodeDerivedFromHTTPStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestRegisterReservesLibraryRange(t *testing.T) {
+	assert.PanicsWithValue(t, "errx: error code 109999 is in 10xxxx, which is reserved for the library; business codes start at 110000", func() {
+		_ = errx.Register(109999, http.StatusBadRequest, "reserved")
+	})
+	assert.Equal(t, 110000, errFirstBusinessCode.Code(), "business codes start at 110000")
+}
+
+var errFirstBusinessCode = errx.Register(110000, http.StatusBadRequest, "first business code")
+
+func TestMarkdownListsLibraryCodes(t *testing.T) {
+	md := errx.Markdown()
+
+	assert.Contains(t, md, "| 100001 | 500 | 13 | internal error |\n")
+	assert.Contains(t, md, "| 100005 | 500 | 13 | database error |\n")
+}
+
+func TestTranslateUnregisteredCodeValueIsInternal(t *testing.T) {
+	var nilCode *errx.Code
+	tests := map[string]error{
+		"zero Code":                       new(errx.Code),
+		"nil *Code in a non-nil error":    nilCode,
+		"zero Code wrapped":               fmt.Errorf("outer: %w", new(errx.Code)),
+		"zero Code's Wrap":                new(errx.Code).Wrap(nil, "detail"),
+		"nil *Code wrapped by fmt.Errorf": fmt.Errorf("outer: %w", nilCode),
+	}
+	for desc, err := range tests {
+		t.Run(desc, func(t *testing.T) {
+			assert.Same(t, errx.ErrInternal, errx.Translate(err))
+		})
+	}
+}
+
+var errMultiline = errx.Register(990301, http.StatusBadRequest, "line one\r\nline two\nline | three")
+
+func TestMarkdownKeepsEachCodeOnOneLine(t *testing.T) {
+	assert.Contains(t, errx.Markdown(), "| 990301 | 400 | 3 | line one line two line \\| three |\n")
+}

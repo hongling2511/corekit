@@ -16,7 +16,7 @@ import (
 )
 
 // docs/errcodes.md is exported from the registry; a test fails when it is stale.
-//go:generate sh -c "go run . errcodes --log.level=warn > ../../docs/errcodes.md"
+//go:generate sh ../../scripts/gen-errcodes.sh ../../docs/errcodes.md
 
 // ErrUserNotFound is one of the sample's business error codes (service 11).
 var ErrUserNotFound = errx.Register(110001, http.StatusNotFound, "user not found")

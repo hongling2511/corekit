@@ -334,3 +334,46 @@ func TestErrcodesDocIsUpToDate(t *testing.T) {
 
 	assert.Equal(t, string(doc), r.stdout, "docs/errcodes.md is stale; run `make gen` and commit the result")
 }
+
+// genErrcodes runs the script behind `make gen` with extra environment,
+// writing the error code document to out.
+func genErrcodes(t *testing.T, out string, env ...string) error {
+	t.Helper()
+	// Read the script so go test re-runs this test when it changes.
+	_, err := os.ReadFile("../../scripts/gen-errcodes.sh")
+	require.NoError(t, err)
+	cmd := exec.Command("sh", "../../scripts/gen-errcodes.sh", out)
+	cmd.Env = append(os.Environ(), env...)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func TestGenErrcodesReplacesDocOnlyOnSuccess(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "errcodes.md")
+	require.NoError(t, os.WriteFile(out, []byte("previous document\n"), 0o644))
+
+	t.Run("a failed run keeps the previous document", func(t *testing.T) {
+		require.Error(t, genErrcodes(t, out, "SAMPLE_LOG_FORMAT=bad-format"))
+
+		got, err := os.ReadFile(out)
+		require.NoError(t, err)
+		assert.Equal(t, "previous document\n", string(got))
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		assert.Len(t, entries, 1, "no temporary file is left behind")
+	})
+	t.Run("a successful run replaces it with the export", func(t *testing.T) {
+		require.NoError(t, genErrcodes(t, out))
+
+		got, err := os.ReadFile(out)
+		require.NoError(t, err)
+		assert.Equal(t, run(t, nil, "errcodes").stdout, string(got))
+		info, err := os.Stat(out)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		assert.Len(t, entries, 1, "no temporary file is left behind")
+	})
+}
