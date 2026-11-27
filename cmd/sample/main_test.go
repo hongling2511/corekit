@@ -160,8 +160,14 @@ func TestConfigPrintShowsEffectiveConfig(t *testing.T) {
 		"log.format": "json",
 		"log.output": "stdout",
 		// time.Duration prints as its underlying nanoseconds.
-		"shutdown.timeout": float64(30 * time.Second),
-		"token":            "",
+		"shutdown.timeout":   float64(30 * time.Second),
+		"http.addr":          ":8080",
+		"http.read_timeout":  float64(30 * time.Second),
+		"http.write_timeout": float64(30 * time.Second),
+		"http.idle_timeout":  float64(120 * time.Second),
+		"http.tls.cert_file": "",
+		"http.tls.key_file":  "",
+		"token":              "",
 	}, got)
 }
 

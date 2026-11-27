@@ -1,5 +1,5 @@
 // Command sample is the corekit sample binary. Its options object composes
-// the library's log options block with one field of its own.
+// the library's log, shutdown and HTTP options blocks with one field of its own.
 package main
 
 import (
@@ -12,6 +12,7 @@ import (
 
 	"github.com/hongling2511/corekit/app"
 	"github.com/hongling2511/corekit/errx"
+	"github.com/hongling2511/corekit/httpx"
 	"github.com/hongling2511/corekit/log"
 )
 
@@ -25,22 +26,28 @@ var ErrUserNotFound = errx.Register(110001, http.StatusNotFound, "user not found
 type Options struct {
 	Log      log.Options         `mapstructure:"log"`
 	Shutdown app.ShutdownOptions `mapstructure:"shutdown"`
+	HTTP     httpx.Options       `mapstructure:"http"`
 	Token    string              `mapstructure:"token" secret:"true"` // a secret, redacted when printed
 }
 
 func newOptions() *Options {
-	return &Options{Log: *log.NewOptions(), Shutdown: *app.NewShutdownOptions()}
+	return &Options{Log: *log.NewOptions(), Shutdown: *app.NewShutdownOptions(), HTTP: *httpx.NewOptions()}
 }
 
 func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	o.Log.AddFlags(fs)
 	o.Shutdown.AddFlags(fs)
+	o.HTTP.AddFlags(fs)
 	fs.StringVar(&o.Token, "token", o.Token, "API token")
 }
 
-func (o *Options) Complete() error { return errors.Join(o.Log.Complete(), o.Shutdown.Complete()) }
+func (o *Options) Complete() error {
+	return errors.Join(o.Log.Complete(), o.Shutdown.Complete(), o.HTTP.Complete())
+}
 
-func (o *Options) Validate() error { return errors.Join(o.Log.Validate(), o.Shutdown.Validate()) }
+func (o *Options) Validate() error {
+	return errors.Join(o.Log.Validate(), o.Shutdown.Validate(), o.HTTP.Validate())
+}
 
 // Logging hands the log options block to the start-up pipeline.
 func (o *Options) Logging() *log.Options { return &o.Log }

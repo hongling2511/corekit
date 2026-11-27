@@ -8,12 +8,15 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/hongling2511/corekit/app"
+	"github.com/hongling2511/corekit/httpx"
 )
 
-// Until real services exist, `serve` runs placeholder components. Two
-// environment variables, read by serve alone, make them demonstrate the
-// shutdown behaviour; they are not configuration keys.
+// `serve` runs the HTTP server and, after it, a placeholder component. Two
+// environment variables, read by serve alone, make the placeholder
+// demonstrate the shutdown behaviour; they are not configuration keys.
 const (
 	demoFailEnv = "SAMPLE_DEMO_FAIL" // a duration: the second component fails this long after starting
 	demoHangEnv = "SAMPLE_DEMO_HANG" // true: the second component's Stop never returns
@@ -28,7 +31,18 @@ func serveCommand(opts *Options) app.Command {
 			if err != nil {
 				return err
 			}
-			return app.RunComponents(ctx, opts.Shutdown.Timeout, &placeholder{name: "first"}, second)
+			demo, err := demoRoutes()
+			if err != nil {
+				return err
+			}
+			users := &userHandler{svc: newUserService()}
+			server := httpx.New(&opts.HTTP, func(r gin.IRouter) {
+				users.routes(r)
+				if demo {
+					addDemoRoutes(r)
+				}
+			})
+			return app.RunComponents(ctx, opts.Shutdown.Timeout, server, second)
 		},
 	}
 }

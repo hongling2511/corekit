@@ -28,6 +28,7 @@ var (
 	ErrUnauthenticated  = register(100003, http.StatusUnauthorized, "unauthenticated")
 	ErrPermissionDenied = register(100004, http.StatusForbidden, "permission denied")
 	ErrDatabase         = register(100005, http.StatusInternalServerError, "database error")
+	ErrRouteNotFound    = register(100006, http.StatusNotFound, "route not found")
 )
 
 // Code is a registered error code. It is itself an error, so a registered
