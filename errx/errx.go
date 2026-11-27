@@ -79,7 +79,9 @@ func (c *Code) Error() string { return fmt.Sprintf("%d %s", c.code, c.message) }
 // Wrap returns an error carrying this code, an internal detail and the
 // cause, which may be nil. The detail and the cause appear in Error, for
 // logs; Translate still yields only the registered message. errors.Is
-// matches both the code and the cause.
+// matches both the code and the cause. Wrapping a nil *Code yields an
+// internal error: Error shows ErrInternal's text and errors.Is matches
+// ErrInternal.
 func (c *Code) Wrap(cause error, detail string) error {
 	return &wrapped{code: c, detail: detail, cause: cause}
 }
@@ -92,12 +94,17 @@ type wrapped struct {
 	cause  error
 }
 
-func (w *wrapped) Error() string {
-	code := w.code
-	if code == nil {
-		code = ErrInternal // a nil *Code's Wrap formats as Translate reports it
+// shownCode is the code that Error and Is use: ErrInternal stands in for a
+// nil *Code.
+func (w *wrapped) shownCode() *Code {
+	if w.code == nil {
+		return ErrInternal
 	}
-	s := code.Error() + ": " + w.detail
+	return w.code
+}
+
+func (w *wrapped) Error() string {
+	s := w.shownCode().Error() + ": " + w.detail
 	if w.cause != nil {
 		s += ": " + w.cause.Error()
 	}
@@ -105,7 +112,7 @@ func (w *wrapped) Error() string {
 }
 
 func (w *wrapped) Unwrap() error        { return w.cause }
-func (w *wrapped) Is(target error) bool { return target == w.code }
+func (w *wrapped) Is(target error) bool { return target == w.shownCode() }
 func (w *wrapped) errxCode() *Code      { return w.code }
 
 var (

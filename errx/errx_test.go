@@ -204,6 +204,7 @@ func TestNilCodeWrapBehavesAsInternal(t *testing.T) {
 			if tt.cause != nil {
 				assert.ErrorIs(t, err, tt.cause, "the root cause stays in the chain")
 			}
+			assert.ErrorIs(t, err, errx.ErrInternal)
 			var target *errx.Code
 			assert.False(t, errors.As(err, &target))
 			got := errx.Translate(err)
