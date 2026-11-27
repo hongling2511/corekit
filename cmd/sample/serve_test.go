@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -23,11 +24,30 @@ type logLine struct {
 	raw       string
 }
 
+// lockedBuffer is a strings.Builder safe to read while the process writes.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
 // serving is a running `sample serve` process.
 type serving struct {
 	cmd    *exec.Cmd
 	lines  chan logLine // stdout log lines; closed at EOF
-	stderr *strings.Builder
+	waited chan error   // the result of cmd.Wait, once stdout is closed
+	stderr *lockedBuffer
 	seen   []logLine
 }
 
@@ -38,10 +58,14 @@ func startServe(t *testing.T, args ...string) *serving {
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}
 	stdout, err := cmd.StdoutPipe()
 	require.NoError(t, err)
-	s := &serving{cmd: cmd, lines: make(chan logLine, 100), stderr: &strings.Builder{}}
+	s := &serving{cmd: cmd, lines: make(chan logLine, 100), waited: make(chan error, 1), stderr: &lockedBuffer{}}
 	cmd.Stderr = s.stderr
 	require.NoError(t, cmd.Start())
-	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		for range s.lines { // drain so the reader ends and Wait reaps the process
+		}
+	})
 	go func() {
 		defer close(s.lines)
 		sc := bufio.NewScanner(stdout)
@@ -51,6 +75,7 @@ func startServe(t *testing.T, args ...string) *serving {
 			s.lines <- l
 		}
 		_, _ = io.Copy(io.Discard, stdout)
+		s.waited <- cmd.Wait() // Wait only after stdout is fully read
 	}()
 	return s
 }
@@ -75,19 +100,27 @@ func (s *serving) waitFor(t *testing.T, msg, component string) {
 	}
 }
 
-// exit waits for the process to end and returns its exit code, the time it
-// took and the component events (msg component) it logged.
+// exit waits for the process to end and returns its exit code and the
+// component events ("msg component") it logged.
 func (s *serving) exit(t *testing.T) (code int, events []string) {
 	t.Helper()
-	for l := range s.lines {
-		s.seen = append(s.seen, l)
+	timeout := time.After(10 * time.Second)
+	for lines := s.lines; lines != nil; {
+		select {
+		case l, ok := <-lines:
+			if !ok {
+				lines = nil
+				break
+			}
+			s.seen = append(s.seen, l)
+		case <-timeout:
+			t.Fatal("serve did not exit")
+		}
 	}
-	waited := make(chan error, 1)
-	go func() { waited <- s.cmd.Wait() }()
 	var err error
 	select {
-	case err = <-waited:
-	case <-time.After(10 * time.Second):
+	case err = <-s.waited:
+	case <-timeout:
 		t.Fatal("serve did not exit")
 	}
 	if exitErr := (*exec.ExitError)(nil); errors.As(err, &exitErr) {
@@ -164,4 +197,25 @@ func TestShutdownTimeoutMustBePositive(t *testing.T) {
 
 	assert.NotEqual(t, 0, r.code)
 	assert.Contains(t, r.stderr, "shutdown.timeout")
+}
+
+func TestServeSecondSignalEndsTheProcessAtOnce(t *testing.T) {
+	s := startServe(t, "--shutdown.timeout=1m", "--demo.hang")
+	s.waitFor(t, "component starting", "second")
+
+	require.NoError(t, s.cmd.Process.Signal(syscall.SIGTERM))
+	s.waitFor(t, "component stopping", "second")
+	began := time.Now()
+	require.NoError(t, s.cmd.Process.Signal(syscall.SIGTERM))
+	code, _ := s.exit(t)
+
+	assert.Equal(t, -1, code, "killed by the signal")
+	assert.Less(t, time.Since(began), 5*time.Second)
+}
+
+func TestNegativeDemoFailIsRejected(t *testing.T) {
+	r := run(t, nil, "serve", "--demo.fail=-1s")
+
+	assert.NotEqual(t, 0, r.code)
+	assert.Contains(t, r.stderr, "demo.fail")
 }

@@ -43,6 +43,7 @@ type fake struct {
 	once    sync.Once
 
 	start func(ctx context.Context) error // runs inside Start before blocking; a non-nil error is returned
+	early bool                            // Start returns nil at once
 	stop  func(ctx context.Context) error // replaces Stop's behaviour
 }
 
@@ -54,6 +55,9 @@ func (f *fake) Name() string { return f.name }
 
 func (f *fake) Start(ctx context.Context) error {
 	close(f.started)
+	if f.early {
+		return nil
+	}
 	if f.start != nil {
 		if err := f.start(ctx); err != nil {
 			return err
@@ -152,26 +156,13 @@ func TestComponentFailureStopsTheOthers(t *testing.T) {
 func TestComponentReturningEarlyWithoutErrorIsAFailure(t *testing.T) {
 	ev := &events{}
 	a, b := newFake("a", ev), newFake("b", ev)
-	b.start = func(context.Context) error { return errEarly }
+	b.early = true
 
-	err := result(t, runAsync(context.Background(), 5*time.Second, a, wrapNil{b}))
+	err := result(t, runAsync(context.Background(), 5*time.Second, a, b))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "component b: exited unexpectedly")
 	assert.Equal(t, []string{"stop a", "exit a"}, ev.get())
-}
-
-var errEarly = errors.New("early")
-
-// wrapNil turns a component whose Start fails with errEarly into one whose
-// Start returns nil early.
-type wrapNil struct{ *fake }
-
-func (w wrapNil) Start(ctx context.Context) error {
-	if err := w.fake.Start(ctx); !errors.Is(err, errEarly) {
-		return err
-	}
-	return nil
 }
 
 func TestStopTimeoutAbandonsAStuckComponent(t *testing.T) {
@@ -226,4 +217,21 @@ func TestSignalStopsTheComponents(t *testing.T) {
 			assert.Equal(t, []string{"stop b", "exit b", "stop a", "exit a"}, ev.get())
 		})
 	}
+}
+
+func TestFailureIsKeptWhenTheStopThenTimesOut(t *testing.T) {
+	ev := &events{}
+	a, b := newFake("a", ev), newFake("b", ev)
+	boom := errors.New("boom")
+	fail := make(chan struct{})
+	b.start = func(context.Context) error { <-fail; return boom }
+	a.stop = func(context.Context) error { select {} } // ignores its deadline
+
+	done := runAsync(context.Background(), 100*time.Millisecond, a, b)
+	waitStarted(t, a, b)
+	close(fail)
+
+	err := result(t, done)
+	require.ErrorIs(t, err, boom)
+	assert.Contains(t, err.Error(), "stop timed out after 100ms; still running: [a]")
 }

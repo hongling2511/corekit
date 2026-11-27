@@ -32,9 +32,11 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.Token, "token", o.Token, "API token")
 }
 
-func (o *Options) Complete() error { return o.Log.Complete() }
+func (o *Options) Complete() error { return errors.Join(o.Log.Complete(), o.Shutdown.Complete()) }
 
-func (o *Options) Validate() error { return errors.Join(o.Log.Validate(), o.Shutdown.Validate()) }
+func (o *Options) Validate() error {
+	return errors.Join(o.Log.Validate(), o.Shutdown.Validate(), o.Demo.Validate())
+}
 
 // Logging hands the log options block to the start-up pipeline.
 func (o *Options) Logging() *log.Options { return &o.Log }

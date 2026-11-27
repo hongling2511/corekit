@@ -35,9 +35,14 @@ type Component interface {
 // whole stop has the timeout as its upper bound; components still running
 // then are abandoned.
 //
-// It returns nil after a shutdown on cancellation or a signal, otherwise the
-// failure of the first failing component, joined with any errors from
-// stopping.
+// Once stopping has begun, a second SIGINT or SIGTERM ends the process at
+// once. A component whose Start returns because a component stopped before
+// it has gone counts as failed.
+//
+// It returns nil after a clean shutdown on cancellation or a signal,
+// otherwise the failure of the first failing component joined with the
+// errors from stopping: a Stop error and a stop timeout make the shutdown
+// unclean.
 func RunComponents(ctx context.Context, timeout time.Duration, components ...Component) error {
 	sigCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
@@ -70,37 +75,50 @@ func RunComponents(ctx context.Context, timeout time.Duration, components ...Com
 	}
 
 	<-gctx.Done()
+	// From here a second SIGINT or SIGTERM has its default effect and ends
+	// the process at once.
+	stopSignals()
 	slog.InfoContext(ctx, "stopping components", "cause", context.Cause(gctx).Error(), "timeout", timeout.String())
 	stopCtx, cancel := context.WithTimeout(base, timeout)
 	defer cancel()
 	var stopErrs []error
-	for i := len(running) - 1; i >= 0; i-- {
-		if err := running[i].stop(stopCtx); err != nil {
+	timedOut := false
+	for i := len(running) - 1; i >= 0 && !timedOut; i-- {
+		exited, err := running[i].stop(stopCtx)
+		if err != nil {
 			stopErrs = append(stopErrs, err)
 		}
-		if stopCtx.Err() != nil {
-			var left []string
-			for j := i; j >= 0; j-- {
-				select {
-				case <-running[j].exited:
-				default:
-					left = append(left, running[j].Name())
-				}
-			}
+		if !exited {
+			timedOut = true
+			left := stillRunning(running[:i+1])
 			slog.ErrorContext(ctx, "stop timed out", "timeout", timeout.String(), "running", left)
 			stopErrs = append(stopErrs, fmt.Errorf("stop timed out after %s; still running: %v", timeout, left))
-			break
 		}
 	}
-	// Every Start has returned unless the stop timed out; then the first
-	// failure, if any, is the group context's cause.
+	// Every Start has returned unless the stop timed out. Then a component
+	// failure that began the shutdown is the group context's cause; it
+	// differs from the signal context's cause only in that case.
 	var startErr error
-	if stopCtx.Err() == nil {
+	if !timedOut {
 		startErr = g.Wait()
-	} else if sigCtx.Err() == nil {
-		startErr = context.Cause(gctx) // a component failed
+	} else if cause := context.Cause(gctx); cause != context.Cause(sigCtx) {
+		startErr = cause
 	}
 	return errors.Join(append([]error{startErr}, stopErrs...)...)
+}
+
+// stillRunning returns the names of the components whose Start has not
+// returned, in stop order.
+func stillRunning(running []*runningComponent) []string {
+	var names []string
+	for i := len(running) - 1; i >= 0; i-- {
+		select {
+		case <-running[i].exited:
+		default:
+			names = append(names, running[i].Name())
+		}
+	}
+	return names
 }
 
 type runningComponent struct {
@@ -116,35 +134,37 @@ func (r *runningComponent) abandon() {
 }
 
 // stop stops one component: Stop, then cancel its Start context and wait for
-// Start to return, all bounded by ctx.
-func (r *runningComponent) stop(ctx context.Context) error {
+// Start to return, all bounded by ctx. It reports whether Start has
+// returned, and Stop's error.
+func (r *runningComponent) stop(ctx context.Context) (exited bool, err error) {
 	select {
 	case <-r.exited:
-		return nil // it failed or exited already
+		return true, nil // it failed or exited already
 	default:
 	}
 	slog.InfoContext(ctx, "component stopping", "component", r.Name())
 	r.stopping.Store(true)
 	stopped := make(chan error, 1)
 	go func() { stopped <- r.Stop(ctx) }()
-	var err error
 	select {
 	case err = <-stopped:
 	case <-ctx.Done():
-		return nil // reported as a timeout by the caller
+		return false, nil
+	}
+	if err != nil {
+		slog.ErrorContext(ctx, "component stop failed", "component", r.Name(), "error", err)
+		err = fmt.Errorf("stop component %s: %w", r.Name(), err)
 	}
 	r.cancel()
 	select {
 	case <-r.exited:
 	case <-ctx.Done():
-		return err
+		return false, err
 	}
-	if err != nil {
-		slog.ErrorContext(ctx, "component stop failed", "component", r.Name(), "error", err)
-		return fmt.Errorf("stop component %s: %w", r.Name(), err)
+	if err == nil {
+		slog.InfoContext(ctx, "component stopped", "component", r.Name())
 	}
-	slog.InfoContext(ctx, "component stopped", "component", r.Name())
-	return nil
+	return true, err
 }
 
 // ShutdownOptions is the shutdown options block. Embed it in an options
