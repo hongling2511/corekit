@@ -39,8 +39,9 @@ type Component interface {
 // once. A component whose Start returns because a component stopped before
 // it has gone counts as failed.
 //
-// Start returning nil or context.Canceled after its component was told to
-// stop is a clean stop; any other error, including one reported while
+// Start returning nil or a pure context.Canceled (possibly wrapped, but not
+// joined with another error) after its component was told to stop is a
+// clean stop; any other error, including one reported while
 // stopping (a final flush that failed), is a failure.
 //
 // It returns nil after a clean shutdown on cancellation or a signal,
@@ -68,7 +69,7 @@ func RunComponents(ctx context.Context, timeout time.Duration, components ...Com
 			err := c.Start(cctx)
 			stopping := r.stopping.Load()
 			switch {
-			case stopping && (err == nil || errors.Is(err, context.Canceled)):
+			case stopping && (err == nil || onlyCanceled(err)):
 				return nil // the expected end of a stop
 			case err == nil:
 				err = errors.New("exited unexpectedly")
@@ -114,6 +115,24 @@ func RunComponents(ctx context.Context, timeout time.Duration, components ...Com
 		}
 	}
 	return errors.Join(append(errs, stopErrs...)...)
+}
+
+// onlyCanceled reports whether err is a pure cancellation: every leaf of
+// its error tree is context.Canceled. A cancellation joined with another
+// error is not.
+func onlyCanceled(err error) bool {
+	switch u := err.(type) {
+	case interface{ Unwrap() []error }:
+		for _, e := range u.Unwrap() {
+			if !onlyCanceled(e) {
+				return false
+			}
+		}
+		return len(u.Unwrap()) > 0
+	case interface{ Unwrap() error }:
+		return onlyCanceled(u.Unwrap())
+	}
+	return errors.Is(err, context.Canceled)
 }
 
 // stillRunning returns the names of the components whose Start has not

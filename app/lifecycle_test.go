@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"syscall"
@@ -294,4 +295,42 @@ func TestUncomparableCancelCauseWithStopTimeout(t *testing.T) {
 	err := result(t, done)
 	require.Error(t, err)
 	assert.Equal(t, "stop timed out after 100ms; still running: [a]", err.Error(), "the caller's cause is not a component failure")
+}
+
+func TestCancellationJoinedWithAFailureDuringShutdownIsReturned(t *testing.T) {
+	for _, trigger := range []string{"signal", "cancel"} {
+		t.Run(trigger, func(t *testing.T) {
+			ev := &events{}
+			a, b := newFake("a", ev), newFake("b", ev)
+			flush := errors.New("final flush failed")
+			b.final = errors.Join(context.Canceled, flush)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			done := runAsync(ctx, 5*time.Second, a, b)
+			waitStarted(t, a, b)
+			if trigger == "signal" {
+				require.NoError(t, syscall.Kill(os.Getpid(), syscall.SIGTERM))
+			} else {
+				cancel()
+			}
+
+			err := result(t, done)
+			require.ErrorIs(t, err, flush)
+			assert.Equal(t, []string{"stop b", "exit b", "stop a", "exit a"}, ev.get(), "a still stops")
+		})
+	}
+}
+
+func TestWrappedCancellationDuringShutdownIsClean(t *testing.T) {
+	ev := &events{}
+	a := newFake("a", ev)
+	a.final = fmt.Errorf("serve: %w", context.Canceled)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := runAsync(ctx, 5*time.Second, a)
+	waitStarted(t, a)
+	cancel()
+
+	require.NoError(t, result(t, done))
 }
