@@ -641,29 +641,37 @@ func (o *mapEntryOptions) AddFlags(*pflag.FlagSet) {}
 func (o *mapEntryOptions) Complete() error         { return nil }
 func (o *mapEntryOptions) Validate() error         { return nil }
 
+type nestedMapOptions struct {
+	Groups map[string]map[string]string `mapstructure:"groups"`
+}
+
+func (o *nestedMapOptions) AddFlags(*pflag.FlagSet) {}
+func (o *nestedMapOptions) Complete() error         { return nil }
+func (o *nestedMapOptions) Validate() error         { return nil }
+
 func TestLoadRejectsNonMapValueForMapField(t *testing.T) {
 	// A map field takes only a mapping; the decoder would otherwise merge a
 	// list of maps into the map and drop unknown keys in its entries.
-	tests := []struct{ desc, file string }{
-		{"list of maps", "entries: [{foo: {name: valid}}]\n"},
-		{"list of maps with a typo", "entries: [{foo: {nmae: valid}}]\n"},
-		{"scalar", "entries: foo\n"},
-		{"explicit null", "entries: null\n"},
-		{"explicit null as tilde", "entries: ~\n"},
+	tests := []struct{ desc, file, want string }{
+		{"list of maps", "entries: [{foo: {name: valid}}]\n", "key entries: expected a mapping, got []interface {}"},
+		{"list of maps with a typo", "entries: [{foo: {nmae: valid}}]\n", "key entries: expected a mapping, got []interface {}"},
+		{"scalar", "entries: foo\n", "key entries: expected a mapping, got string"},
+		{"explicit null", "entries: null\n", "key entries: expected a mapping, got null"},
+		{"explicit null as tilde", "entries: ~\n", "key entries: expected a mapping, got null"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.desc, func(t *testing.T) {
 			err := load(t, &mapEntryOptions{}, writeFile(t, "config.yaml", tt.file))
 
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "key entries: expected a mapping")
+			assert.Contains(t, err.Error(), tt.want)
 		})
 	}
-	t.Run("explicit null is named as null", func(t *testing.T) {
-		err := load(t, &mapEntryOptions{}, writeFile(t, "config.yaml", "entries: null\n"))
+	t.Run("explicit null inside a map of maps", func(t *testing.T) {
+		err := load(t, &nestedMapOptions{}, writeFile(t, "config.yaml", "groups: {a: null}\n"))
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "key entries: expected a mapping, got null")
+		assert.Contains(t, err.Error(), "key groups.a: expected a mapping, got null")
 	})
 	t.Run("mapping is accepted", func(t *testing.T) {
 		opts := &mapEntryOptions{}

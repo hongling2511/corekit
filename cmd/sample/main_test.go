@@ -172,12 +172,15 @@ func TestConfigPrintShowsEffectiveConfig(t *testing.T) {
 	}, got)
 }
 
+// writeConfig writes body to a temporary sample.yaml and returns its path.
+func writeConfig(t *testing.T, body string) string {
+	t.Helper()
+	file := filepath.Join(t.TempDir(), "sample.yaml")
+	require.NoError(t, os.WriteFile(file, []byte(body), 0o600))
+	return file
+}
+
 func TestConfigPrintMapField(t *testing.T) {
-	writeConfig := func(t *testing.T, body string) string {
-		file := filepath.Join(t.TempDir(), "sample.yaml")
-		require.NoError(t, os.WriteFile(file, []byte(body), 0o600))
-		return file
-	}
 	t.Run("explicit null exits non-zero naming the key", func(t *testing.T) {
 		r := run(t, nil, "config", "print", "--config", writeConfig(t, "labels: null\n"))
 
