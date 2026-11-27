@@ -103,7 +103,7 @@ func (w *wrapped) Is(target error) bool { return target == w.code }
 func (w *wrapped) errxCode() *Code      { return w.code }
 
 var (
-	mu       sync.Mutex
+	mu       sync.RWMutex
 	registry = map[int]*Code{}
 )
 
@@ -138,28 +138,30 @@ func register(code, httpStatus int, message string) *Code {
 }
 
 // Translate returns the error code nearest the top of err's chain. An error
-// without a registered code (including a zero or nil Code) translates to
-// ErrInternal, so its text never
-// reaches callers. Translate(nil) is nil.
+// without a registered code translates to ErrInternal, so its text never
+// reaches callers; so does a chain whose nearest code is a zero or nil Code.
+// Translate(nil) is nil.
 func Translate(err error) *Code {
 	if err == nil {
 		return nil
 	}
 	var c interface{ errxCode() *Code }
-	if errors.As(err, &c) && registered(c.errxCode()) {
-		return c.errxCode()
+	if errors.As(err, &c) {
+		if code := c.errxCode(); registered(code) {
+			return code
+		}
 	}
 	return ErrInternal
 }
 
-// registered reports whether c was returned by Register, as opposed to a
+// registered reports whether c is a code from the registry, as opposed to a
 // zero or nil Code.
 func registered(c *Code) bool {
 	if c == nil {
 		return false
 	}
-	mu.Lock()
-	defer mu.Unlock()
+	mu.RLock()
+	defer mu.RUnlock()
 	return registry[c.code] == c
 }
 
@@ -169,12 +171,12 @@ var markdownCell = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ", "|", `
 // Markdown renders every registered error code as a Markdown table, sorted
 // by code, one line per code.
 func Markdown() string {
-	mu.Lock()
+	mu.RLock()
 	codes := make([]*Code, 0, len(registry))
 	for _, c := range registry {
 		codes = append(codes, c)
 	}
-	mu.Unlock()
+	mu.RUnlock()
 	slices.SortFunc(codes, func(a, b *Code) int { return cmp.Compare(a.code, b.code) })
 
 	var b strings.Builder
