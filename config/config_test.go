@@ -648,6 +648,8 @@ func TestLoadRejectsNonMapValueForMapField(t *testing.T) {
 		{"list of maps", "entries: [{foo: {name: valid}}]\n"},
 		{"list of maps with a typo", "entries: [{foo: {nmae: valid}}]\n"},
 		{"scalar", "entries: foo\n"},
+		{"explicit null", "entries: null\n"},
+		{"explicit null as tilde", "entries: ~\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.desc, func(t *testing.T) {
@@ -657,12 +659,32 @@ func TestLoadRejectsNonMapValueForMapField(t *testing.T) {
 			assert.Contains(t, err.Error(), "key entries: expected a mapping")
 		})
 	}
+	t.Run("explicit null is named as null", func(t *testing.T) {
+		err := load(t, &mapEntryOptions{}, writeFile(t, "config.yaml", "entries: null\n"))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "key entries: expected a mapping, got null")
+	})
 	t.Run("mapping is accepted", func(t *testing.T) {
 		opts := &mapEntryOptions{}
 
 		require.NoError(t, load(t, opts, writeFile(t, "config.yaml", "entries: {foo: {name: valid}}\n")))
 
 		assert.Equal(t, map[string]item{"foo": {Name: "valid"}}, opts.Entries)
+	})
+	t.Run("empty mapping is accepted", func(t *testing.T) {
+		opts := &mapEntryOptions{}
+
+		require.NoError(t, load(t, opts, writeFile(t, "config.yaml", "entries: {}\n")))
+
+		assert.Empty(t, opts.Entries)
+	})
+	t.Run("absent key is accepted", func(t *testing.T) {
+		opts := &mapEntryOptions{}
+
+		require.NoError(t, load(t, opts, writeFile(t, "config.yaml", "{}\n")))
+
+		assert.Nil(t, opts.Entries)
 	})
 }
 

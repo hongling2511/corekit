@@ -125,10 +125,10 @@ func merge(dst map[string]any, key string, val any, path string) error {
 // that matches no field of type t. Map entry names are free; struct fields
 // inside map values, list elements and pointers are checked, and a scalar
 // field takes no keys below it. Interface fields take anything. A map field
-// takes only a mapping (or nothing): any other value, a list included, is an
-// error naming the key, since the decoder would merge a list of maps into it
-// and drop unknown keys. Other shape
-// mismatches are left to the decoder.
+// takes only a mapping, {} included, or no key at all: any other value, a
+// list or an explicit null included, is an error naming the key, since the
+// decoder would merge a list of maps into it and drop unknown keys. Other
+// shape mismatches are left to the decoder.
 func checkTree(tree any, t reflect.Type, path string) ([]string, error) {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
@@ -158,8 +158,12 @@ func checkTree(tree any, t reflect.Type, path string) ([]string, error) {
 			unknown = append(unknown, u...)
 		}
 	case reflect.Map:
-		if !isMap && tree != nil {
-			return nil, fmt.Errorf("key %s: expected a mapping, got %T", strings.TrimSuffix(path, "."), tree)
+		if !isMap {
+			got := fmt.Sprintf("%T", tree)
+			if tree == nil {
+				got = "null"
+			}
+			return nil, fmt.Errorf("key %s: expected a mapping, got %s", strings.TrimSuffix(path, "."), got)
 		}
 		for k, val := range m {
 			u, err := checkTree(val, t.Elem(), path+k+".")

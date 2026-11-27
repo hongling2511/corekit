@@ -1,5 +1,5 @@
 // Command sample is the corekit sample binary. Its options object composes
-// the library's log, shutdown and HTTP options blocks with one field of its own.
+// the library's log, shutdown and HTTP options blocks with fields of its own.
 package main
 
 import (
@@ -29,6 +29,7 @@ type Options struct {
 	Shutdown app.ShutdownOptions `mapstructure:"shutdown"`
 	HTTP     httpx.Options       `mapstructure:"http"`
 	Token    string              `mapstructure:"token" secret:"true"` // a secret, redacted when printed
+	Labels   map[string]string   `mapstructure:"labels"`              // free-form name/value pairs, set in the config file
 }
 
 func newOptions() *Options {
