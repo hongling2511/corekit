@@ -93,7 +93,11 @@ type wrapped struct {
 }
 
 func (w *wrapped) Error() string {
-	s := w.code.Error() + ": " + w.detail
+	code := w.code
+	if code == nil {
+		code = ErrInternal // a nil *Code's Wrap formats as Translate reports it
+	}
+	s := code.Error() + ": " + w.detail
 	if w.cause != nil {
 		s += ": " + w.cause.Error()
 	}
