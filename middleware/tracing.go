@@ -8,10 +8,10 @@
 package middleware
 
 import (
+	"context"
+	"net/http"
+
 	"github.com/gin-gonic/gin"
-	"go.opentelemetry.io/otel/propagation"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/hongling2511/corekit/log"
 )
@@ -19,26 +19,25 @@ import (
 // TraceIDHeader is the response header that carries the request's trace ID.
 const TraceIDHeader = "X-Trace-Id"
 
-// Tracing starts an OpenTelemetry server span for every request. It
-// continues the upstream trace of a W3C traceparent header and starts a new
-// trace otherwise. The trace ID goes into the request context (see
-// log.TraceID, so every record logged with that context carries it) and the
-// X-Trace-Id response header.
-//
-// Spans are not exported yet: the tracer provider has no exporter, but it
-// generates trace IDs all the same.
-func Tracing() gin.HandlerFunc {
-	tracer := sdktrace.NewTracerProvider().Tracer("github.com/hongling2511/corekit/middleware")
-	propagator := propagation.TraceContext{}
+// Tracer starts the server span of one request.
+type Tracer interface {
+	// StartServerSpan starts a span named name for a request with header,
+	// continuing the upstream trace of a W3C traceparent header. It returns
+	// ctx carrying the span, the trace ID and the function that ends the span.
+	StartServerSpan(ctx context.Context, name string, header http.Header) (context.Context, string, func())
+}
+
+// Tracing starts a server span with tracer for every request. The trace ID
+// goes into the request context (see log.TraceID, so every record logged
+// with that context carries it) and the X-Trace-Id response header.
+func Tracing(tracer Tracer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ctx := propagator.Extract(c.Request.Context(), propagation.HeaderCarrier(c.Request.Header))
 		name := c.Request.Method // an unmatched route has no route template
 		if route := c.FullPath(); route != "" {
 			name += " " + route
 		}
-		ctx, span := tracer.Start(ctx, name, trace.WithSpanKind(trace.SpanKindServer))
-		defer span.End()
-		traceID := span.SpanContext().TraceID().String()
+		ctx, traceID, end := tracer.StartServerSpan(c.Request.Context(), name, c.Request.Header)
+		defer end()
 		c.Request = c.Request.WithContext(log.WithTraceID(ctx, traceID))
 		c.Header(TraceIDHeader, traceID)
 		c.Next()

@@ -25,7 +25,8 @@ lint: $(GOLANGCI_LINT) $(GOVULNCHECK)
 gen:
 	go generate ./...
 
-# Runs the sample service (its HTTP API on http.addr, default :8080) until SIGINT or SIGTERM.
+# Runs the sample service (its HTTP API on http.addr, default :8080, and its
+# management port on admin.addr, default :8081) until SIGINT or SIGTERM.
 run:
 	go run ./cmd/sample serve
 

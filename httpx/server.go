@@ -29,20 +29,19 @@ import (
 // Server is an HTTP server component. It is also the http.Handler it
 // serves.
 type Server struct {
-	opts    Options
-	srv     *http.Server
-	metrics *obs.HTTPMetrics
+	opts Options
+	srv  *http.Server
 }
 
 // New returns a server configured by opts whose routes are declared by
 // routes. Every route, and the answer to an unmatched one, runs behind the
 // fixed middleware chain Recovery → Tracing → AccessLog → Metrics, which
 // cannot be turned off or reordered, and then behind the optional
-// middlewares, in order (see middleware.Registry).
-func New(opts *Options, routes func(r gin.IRouter), optional ...gin.HandlerFunc) *Server {
+// middlewares, in order (see middleware.Registry); requests are traced with
+// tracer and recorded into metrics.
+func New(opts *Options, tracer *obs.Tracer, metrics *obs.Metrics, routes func(r gin.IRouter), optional ...gin.HandlerFunc) *Server {
 	engine := gin.New()
-	metrics := obs.NewHTTPMetrics()
-	engine.Use(middleware.Recovery(Fail), middleware.Tracing(), middleware.AccessLog(), middleware.Metrics(metrics))
+	engine.Use(middleware.Recovery(Fail), middleware.Tracing(tracer), middleware.AccessLog(), middleware.Metrics(metrics))
 	engine.Use(optional...)
 	// No automatic redirects (/users/ → /users, case or path fixes): such a
 	// path is unmatched and answers with the envelope like any other.
@@ -53,8 +52,7 @@ func New(opts *Options, routes func(r gin.IRouter), optional ...gin.HandlerFunc)
 	engine.NoMethod(func(c *gin.Context) { Fail(c, errx.ErrMethodNotAllowed) })
 	routes(engine)
 	return &Server{
-		opts:    *opts,
-		metrics: metrics,
+		opts: *opts,
 		srv: &http.Server{
 			Handler:      engine,
 			ReadTimeout:  opts.ReadTimeout,
@@ -66,9 +64,6 @@ func New(opts *Options, routes func(r gin.IRouter), optional ...gin.HandlerFunc)
 
 // ServeHTTP serves one request through the fixed chain and the routes.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.srv.Handler.ServeHTTP(w, r) }
-
-// Metrics returns what the server has recorded per method, route and status.
-func (s *Server) Metrics() []obs.HTTPRequestStats { return s.metrics.Snapshot() }
 
 // Name returns "http".
 func (s *Server) Name() string { return "http" }

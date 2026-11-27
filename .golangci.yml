@@ -32,16 +32,33 @@ linters:
           deny:
             - pkg: github.com/gin-gonic/
               desc: gin is used only in middleware, httpx and HTTP handlers
-        # OpenTelemetry stays in the capability packages that trace: middleware and obs.
-        otel-only-in-middleware-obs:
+        # OpenTelemetry stays in obs, which traces; middleware takes its tracer through an interface.
+        otel-only-in-obs:
           list-mode: lax
           files:
             - $all
-            - "!${config-path}/middleware/**"
             - "!${config-path}/obs/**"
           deny:
             - pkg: go.opentelemetry.io/
-              desc: OpenTelemetry is used only in middleware and obs; read the trace ID with log.TraceID
+              desc: OpenTelemetry is used only in obs; read the trace ID with log.TraceID
+        # net/http/pprof registers its handlers on http.DefaultServeMux when imported;
+        # obs serves pprof on the management server's own router instead.
+        no-net-http-pprof:
+          list-mode: lax
+          files:
+            - $all
+          deny:
+            - pkg: net/http/pprof$
+              desc: importing it changes http.DefaultServeMux; the management server (obs.Admin) serves pprof
+        # Prometheus stays in obs, which holds the metrics registry and serves /metrics.
+        prometheus-only-in-obs:
+          list-mode: lax
+          files:
+            - $all
+            - "!${config-path}/obs/**"
+          deny:
+            - pkg: github.com/prometheus/
+              desc: Prometheus is used only in obs; record through obs.Metrics
         # gin.Context stops at the handler: the sample's service layer knows nothing of HTTP.
         sample-service-no-http:
           list-mode: lax

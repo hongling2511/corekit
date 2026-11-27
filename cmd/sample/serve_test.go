@@ -58,7 +58,7 @@ type serving struct {
 // clean environment plus env.
 func startServe(t *testing.T, env []string, args ...string) *serving {
 	t.Helper()
-	cmd := exec.Command(sampleBinary(t), append([]string{"serve", "--http.addr=127.0.0.1:0"}, args...)...)
+	cmd := exec.Command(sampleBinary(t), append([]string{"serve", "--http.addr=127.0.0.1:0", "--admin.addr=127.0.0.1:0"}, args...)...)
 	cmd.Dir = t.TempDir()
 	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}, env...)
 	stdout, err := cmd.StdoutPipe()
@@ -153,12 +153,18 @@ func TestServeStopsInReverseOrderOnSignal(t *testing.T) {
 
 			assert.Equal(t, 0, code, s.stderr.String())
 			assert.Equal(t, []string{
+				"component starting tracing",
+				"component starting admin",
 				"component starting http",
 				"component starting second",
 				"component stopping second",
 				"component stopped second",
 				"component stopping http",
 				"component stopped http",
+				"component stopping admin",
+				"component stopped admin",
+				"component stopping tracing",
+				"component stopped tracing",
 			}, events)
 		})
 	}
@@ -176,6 +182,8 @@ func TestServeExitsWhenAComponentHangsPastTheShutdownTimeout(t *testing.T) {
 	assert.Less(t, time.Since(began), 5*time.Second)
 	assert.Contains(t, s.stderr.String(), "stop timed out after 200ms")
 	assert.Equal(t, []string{
+		"component starting tracing",
+		"component starting admin",
 		"component starting http",
 		"component starting second",
 		"component stopping second",
@@ -190,11 +198,17 @@ func TestServeStopsTheOthersWhenAComponentFails(t *testing.T) {
 	assert.NotEqual(t, 0, code)
 	assert.Contains(t, s.stderr.String(), "component second: demo failure")
 	assert.Equal(t, []string{
+		"component starting tracing",
+		"component starting admin",
 		"component starting http",
 		"component starting second",
 		"component failed second",
 		"component stopping http",
 		"component stopped http",
+		"component stopping admin",
+		"component stopped admin",
+		"component stopping tracing",
+		"component stopped tracing",
 	}, events)
 }
 
