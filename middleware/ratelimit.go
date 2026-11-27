@@ -15,6 +15,8 @@ import (
 // RateLimitOptions are the parameters of the optional middleware
 // "ratelimit", under the key middleware.ratelimit.
 type RateLimitOptions struct {
+	// One bucket per server in the process, shared by every client and route;
+	// each replica counts on its own.
 	Rate  float64 `mapstructure:"rate"`  // requests per second the bucket refills
 	Burst int     `mapstructure:"burst"` // bucket size: requests admitted at once
 }
@@ -22,8 +24,8 @@ type RateLimitOptions struct {
 func newRateLimitOptions() RateLimitOptions { return RateLimitOptions{Rate: 100, Burst: 100} }
 
 func (o *RateLimitOptions) addFlags(fs *pflag.FlagSet) {
-	fs.Float64Var(&o.Rate, "middleware.ratelimit.rate", o.Rate, "ratelimit: requests per second admitted on average")
-	fs.IntVar(&o.Burst, "middleware.ratelimit.burst", o.Burst, "ratelimit: requests admitted at once")
+	fs.Float64Var(&o.Rate, "middleware.ratelimit.rate", o.Rate, "ratelimit: requests per second admitted on average, shared by all clients and routes of this process")
+	fs.IntVar(&o.Burst, "middleware.ratelimit.burst", o.Burst, "ratelimit: requests admitted at once, shared by all clients and routes of this process")
 }
 
 func (o *RateLimitOptions) validate() []error {
@@ -38,8 +40,10 @@ func (o *RateLimitOptions) validate() []error {
 }
 
 // RateLimit admits requests from a token bucket of o.Burst tokens that
-// refills o.Rate tokens per second, one bucket for the whole server (in-process, not
-// shared between replicas). A request finding the bucket empty is answered
+// refills o.Rate tokens per second. There is one bucket per server in the
+// process: every client and every route share its quota, and each replica
+// counts on its own (with n replicas the service admits up to n times the
+// rate). A request finding the bucket empty is answered
 // by fail with errx.ErrTooManyRequests.
 func RateLimit(o RateLimitOptions, fail FailFunc) gin.HandlerFunc {
 	b := &bucket{rate: o.Rate, burst: float64(o.Burst), tokens: float64(o.Burst), last: time.Now()}
