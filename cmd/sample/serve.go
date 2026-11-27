@@ -12,6 +12,7 @@ import (
 
 	"github.com/hongling2511/corekit/app"
 	"github.com/hongling2511/corekit/httpx"
+	"github.com/hongling2511/corekit/middleware"
 )
 
 // `serve` runs the HTTP server and, after it, a placeholder component. Two
@@ -35,15 +36,28 @@ func serveCommand(opts *Options) app.Command {
 			if err != nil {
 				return err
 			}
+			optional, err := opts.middlewares.Build(httpx.Fail)
+			if err != nil {
+				return err
+			}
 			users := &userHandler{svc: newUserService()}
 			server := httpx.New(&opts.HTTP, func(r gin.IRouter) {
 				users.routes(r)
 				if demo {
 					addDemoRoutes(r)
 				}
-			})
+			}, optional...)
 			return app.RunComponents(ctx, opts.Shutdown.Timeout, server, second)
 		},
+	}
+}
+
+// servedBy is the sample's own optional middleware: it names the service in
+// the X-Served-By response header.
+func servedBy(middleware.FailFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-Served-By", "sample")
+		c.Next()
 	}
 }
 

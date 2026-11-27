@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -48,12 +49,21 @@ func List[T any](c *gin.Context, items []T, total int) {
 // An error without a registered code answers as errx.ErrInternal. The
 // error itself, with its internal details, goes only to the log. When the
 // response has already been written, Fail only logs.
+//
+// A context.DeadlineExceeded without a registered code (errx.ErrInternal
+// chosen explicitly is kept), failed after the
+// request's own deadline (see middleware.Timeout) has passed, answers as
+// errx.ErrRequestTimeout.
 func Fail(c *gin.Context, err error) {
 	if err == nil {
 		err = errors.New("httpx.Fail called with a nil error")
 	}
 	code := errx.Translate(err)
 	ctx := c.Request.Context()
+	if fallback := code == errx.ErrInternal && !errors.Is(err, errx.ErrInternal); fallback &&
+		errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		code = errx.ErrRequestTimeout
+	}
 	level := slog.LevelWarn
 	if code.HTTPStatus() >= http.StatusInternalServerError {
 		level = slog.LevelError

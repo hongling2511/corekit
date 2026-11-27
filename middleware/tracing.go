@@ -1,6 +1,10 @@
 // Package middleware holds corekit's gin middlewares. The fixed chain that
 // httpx installs on every server, in this order, is Recovery → Tracing →
 // AccessLog → Metrics.
+//
+// After the fixed chain come the optional middlewares the configuration
+// enables by name (Options.Enabled), built by a Registry: the built-in
+// "cors", "timeout" and "ratelimit", and those the program registers.
 package middleware
 
 import (
