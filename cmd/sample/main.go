@@ -5,13 +5,21 @@ package main
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 
 	"github.com/spf13/pflag"
 
 	"github.com/hongling2511/corekit/app"
+	"github.com/hongling2511/corekit/errx"
 	"github.com/hongling2511/corekit/log"
 )
+
+// docs/errcodes.md is exported from the registry; a test fails when it is stale.
+//go:generate sh ../../scripts/gen-errcodes.sh ../../docs/errcodes.md
+
+// ErrUserNotFound is one of the sample's business error codes (service 11).
+var ErrUserNotFound = errx.Register(110001, http.StatusNotFound, "user not found")
 
 // Options is the sample's options object.
 type Options struct {

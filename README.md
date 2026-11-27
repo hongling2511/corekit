@@ -25,7 +25,7 @@ Heavy dependencies such as gin, gorm, go-redis, casbin and asynq belong to the c
 | `make build` | `go build ./...` |
 | `make test` | `go test -race ./...` |
 | `make lint` | golangci-lint (linters, `depguard` layering, `gofumpt` formatting) and `govulncheck` |
-| `make gen` | `go generate ./...` |
+| `make gen` | `go generate ./...`; regenerates `docs/errcodes.md` from the sample's error code registry |
 | `make run` | `go run ./cmd/sample serve`: the sample service with placeholder components, until SIGINT or SIGTERM |
 | `make docker` | no-op until there is an image to build |
 
@@ -35,4 +35,4 @@ The Go toolchain is pinned by the `toolchain` line in `go.mod`. Lint tools are p
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push and pull request: `make lint`, `make test`, `make build`, and a check that every commit subject follows [Conventional Commits](https://www.conventionalcommits.org) (`scripts/check-commits.sh`).
+`.github/workflows/ci.yml` runs on every push and pull request: `make lint`, `make test` (which also fails when `docs/errcodes.md` differs from the sample's `errcodes` export), `make build`, and a check that every commit subject follows [Conventional Commits](https://www.conventionalcommits.org) (`scripts/check-commits.sh`).
