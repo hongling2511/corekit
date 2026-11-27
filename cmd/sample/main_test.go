@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -158,7 +159,11 @@ func TestConfigPrintShowsEffectiveConfig(t *testing.T) {
 		"log.level":  "info",
 		"log.format": "json",
 		"log.output": "stdout",
-		"token":      "",
+		// time.Duration prints as its underlying nanoseconds.
+		"shutdown.timeout": float64(30 * time.Second),
+		"demo.fail":        float64(0),
+		"demo.hang":        false,
+		"token":            "",
 	}, got)
 }
 

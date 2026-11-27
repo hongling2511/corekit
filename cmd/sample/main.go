@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 
 	"github.com/spf13/pflag"
@@ -14,26 +15,31 @@ import (
 
 // Options is the sample's options object.
 type Options struct {
-	Log   log.Options `mapstructure:"log"`
-	Token string      `mapstructure:"token" secret:"true"` // a secret, redacted when printed
+	Log      log.Options         `mapstructure:"log"`
+	Shutdown app.ShutdownOptions `mapstructure:"shutdown"`
+	Demo     demoOptions         `mapstructure:"demo"`
+	Token    string              `mapstructure:"token" secret:"true"` // a secret, redacted when printed
 }
 
 func newOptions() *Options {
-	return &Options{Log: *log.NewOptions()}
+	return &Options{Log: *log.NewOptions(), Shutdown: *app.NewShutdownOptions()}
 }
 
 func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	o.Log.AddFlags(fs)
+	o.Shutdown.AddFlags(fs)
+	o.Demo.AddFlags(fs)
 	fs.StringVar(&o.Token, "token", o.Token, "API token")
 }
 
 func (o *Options) Complete() error { return o.Log.Complete() }
 
-func (o *Options) Validate() error { return o.Log.Validate() }
+func (o *Options) Validate() error { return errors.Join(o.Log.Validate(), o.Shutdown.Validate()) }
 
 // Logging hands the log options block to the start-up pipeline.
 func (o *Options) Logging() *log.Options { return &o.Log }
 
 func main() {
-	os.Exit(app.New("sample", newOptions()).Run(context.Background(), os.Args[1:]))
+	opts := newOptions()
+	os.Exit(app.New("sample", opts, serveCommand(opts)).Run(context.Background(), os.Args[1:]))
 }

@@ -118,8 +118,9 @@ linters:
             - github.com/stretchr/testify/
             - github.com/hongling2511/corekit/version$
             - github.com/hongling2511/corekit/version/
-        # app (the start-up pipeline) assembles the four standalone foundation packages;
-        # it reaches viper only through config.
+        # app (the start-up pipeline and the lifecycle runner) assembles the four standalone
+        # foundation packages; it reaches viper only through config. The lifecycle runner also
+        # uses exactly errgroup (named by the spec), no other golang.org/x/sync package.
         app:
           list-mode: strict
           files:
@@ -129,6 +130,7 @@ linters:
             - $gostd
             - github.com/spf13/cobra$
             - github.com/spf13/pflag$
+            - golang.org/x/sync/errgroup$
             - github.com/hongling2511/corekit/app$
             - github.com/hongling2511/corekit/app/
             - github.com/hongling2511/corekit/config$
@@ -148,6 +150,7 @@ linters:
             - $gostd
             - github.com/spf13/cobra$
             - github.com/spf13/pflag$
+            - golang.org/x/sync/errgroup$
             - github.com/stretchr/testify/
             - github.com/hongling2511/corekit/app$
             - github.com/hongling2511/corekit/app/
