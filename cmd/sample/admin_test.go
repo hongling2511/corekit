@@ -381,11 +381,18 @@ func TestAReadinessProbeWaitingOnItsChecksAnswersShuttingDownOnceTheStopBegins(t
 	type answer struct {
 		status int
 		body   string
+		err    error
 	}
 	probe := make(chan answer, 1)
-	go func() {
-		status, body := get(t, admin+"/readyz")
-		probe <- answer{status, body}
+	go func() { // no require off the test goroutine: the answer carries the error
+		resp, err := (&http.Client{Timeout: 10 * time.Second}).Get(admin + "/readyz")
+		if err != nil {
+			probe <- answer{err: err}
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(resp.Body)
+		probe <- answer{resp.StatusCode, string(body), err}
 	}()
 	s.waitFor(t, "demo check running", "") // the probe is waiting on its check
 
@@ -393,7 +400,8 @@ func TestAReadinessProbeWaitingOnItsChecksAnswersShuttingDownOnceTheStopBegins(t
 	require.NoError(t, s.cmd.Process.Signal(syscall.SIGTERM))
 	got := <-probe
 
-	assert.Equal(t, answer{http.StatusServiceUnavailable, "shutting down\n"}, got)
+	require.NoError(t, got.err)
+	assert.Equal(t, answer{status: http.StatusServiceUnavailable, body: "shutting down\n"}, got)
 	assert.Less(t, time.Since(began), time.Second, "at once, not at the readiness timeout")
 	code, _ := s.exit(t)
 	assert.Equal(t, 0, code, s.stderr.String())

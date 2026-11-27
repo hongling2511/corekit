@@ -114,11 +114,9 @@ func (a *Admin) AddReadinessCheck(name string, check func(ctx context.Context) e
 }
 
 func (a *Admin) readyz(w http.ResponseWriter, r *http.Request) {
-	select {
-	case <-a.shuttingDown:
-		writeShuttingDown(w)
+	if a.stopping() {
+		writeText(w, http.StatusServiceUnavailable, "shutting down\n")
 		return
-	default:
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), a.readinessTimeout)
 	defer cancel()
@@ -140,7 +138,7 @@ func (a *Admin) readyz(w http.ResponseWriter, r *http.Request) {
 			case <-ctx.Done():
 				err = ctx.Err()
 			case <-a.shuttingDown: // the stop began while the checks ran
-				writeShuttingDown(w)
+				writeText(w, http.StatusServiceUnavailable, "shutting down\n")
 				return
 			}
 		}
@@ -157,19 +155,30 @@ func (a *Admin) readyz(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(&failed, "%s: %s\n", c.name, state)
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	if failed.Len() > 0 {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = io.WriteString(w, failed.String())
-		return
+	switch {
+	case a.stopping(): // the stop began as the results came in: it wins
+		writeText(w, http.StatusServiceUnavailable, "shutting down\n")
+	case failed.Len() > 0:
+		writeText(w, http.StatusServiceUnavailable, failed.String())
+	default:
+		writeText(w, http.StatusOK, "ok\n")
 	}
-	_, _ = io.WriteString(w, "ok\n")
 }
 
-func writeShuttingDown(w http.ResponseWriter) {
+// stopping reports whether the drain has begun.
+func (a *Admin) stopping() bool {
+	select {
+	case <-a.shuttingDown:
+		return true
+	default:
+		return false
+	}
+}
+
+func writeText(w http.ResponseWriter, status int, body string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusServiceUnavailable)
-	_, _ = io.WriteString(w, "shutting down\n")
+	w.WriteHeader(status)
+	_, _ = io.WriteString(w, body)
 }
 
 // runCheck runs check, turning a panic into its failure.
@@ -184,10 +193,10 @@ func runCheck(ctx context.Context, check func(ctx context.Context) error) (err e
 
 // Drain returns the component that begins the stop. Run it last, so it
 // stops first: its Stop makes /readyz answer 503 "shutting down" at once,
-// including the probes still waiting on their checks,
-// then waits window, or until its context is done, while every other
-// component keeps serving, so load balancers take the process out of
-// rotation before it stops taking requests.
+// the probes still waiting on their checks included, then waits window,
+// or until its context is done, while every other component keeps
+// serving, so load balancers take the process out of rotation before it
+// stops taking requests.
 func (a *Admin) Drain(window time.Duration) *Drain {
 	return &Drain{admin: a, window: window}
 }
