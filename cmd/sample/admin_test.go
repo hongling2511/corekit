@@ -374,3 +374,27 @@ func TestDrainWindowMustFitInTheShutdownTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestAReadinessProbeWaitingOnItsChecksAnswersShuttingDownOnceTheStopBegins(t *testing.T) {
+	s, _, admin := startBoth(t, []string{"SAMPLE_DEMO_CHECKS=db:hang"},
+		"--admin.readiness_timeout=5s", "--shutdown.drain_window=1s", "--shutdown.timeout=10s")
+	type answer struct {
+		status int
+		body   string
+	}
+	probe := make(chan answer, 1)
+	go func() {
+		status, body := get(t, admin+"/readyz")
+		probe <- answer{status, body}
+	}()
+	s.waitFor(t, "demo check running", "") // the probe is waiting on its check
+
+	began := time.Now()
+	require.NoError(t, s.cmd.Process.Signal(syscall.SIGTERM))
+	got := <-probe
+
+	assert.Equal(t, answer{http.StatusServiceUnavailable, "shutting down\n"}, got)
+	assert.Less(t, time.Since(began), time.Second, "at once, not at the readiness timeout")
+	code, _ := s.exit(t)
+	assert.Equal(t, 0, code, s.stderr.String())
+}

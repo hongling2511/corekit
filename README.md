@@ -43,7 +43,7 @@ Every response, success or failure, is the envelope `{"code", "message", "data",
 - `/readyz`: 200 when every check registered with `AddReadinessCheck` passes within `admin.readiness_timeout` (default `1s`); otherwise 503, with one `name: failed` or `name: timed out` line per failing check. The reasons go only to the log (`readiness check failed`).
 - `/metrics`: Prometheus text format. It has the Go runtime and process metrics, plus `http_server_requests_total` and the `http_server_request_duration_seconds` histogram, both labelled by `method`, `route` template and `status`.
 - `/version`: what the `version` command prints.
-- `/debug/pprof`: the same paths as `net/http/pprof`, built on `runtime/pprof` so importing `obs` leaves `http.DefaultServeMux` alone. Turn it off with `admin.pprof=false`. Lint forbids importing `net/http/pprof`.
+- `/debug/pprof`: the same paths as `net/http/pprof`, built on `runtime/pprof` so importing `obs` leaves `http.DefaultServeMux` alone. Named profiles take `?seconds=N` for the delta over that window. One difference: `go tool pprof` shows an `allocs` delta as `alloc_space` by default here, but as `inuse_space` against `net/http/pprof`, so pass `-sample_index` explicitly when comparing the two. Turn it off with `admin.pprof=false`. Lint forbids importing `net/http/pprof`.
 
 None of these is served on the business port, where they answer with the `100006` envelope. Nothing pings itself after start-up.
 

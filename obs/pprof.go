@@ -25,6 +25,12 @@ import (
 // on runtime/pprof and github.com/google/pprof/profile:
 // importing net/http/pprof would register its handlers on
 // http.DefaultServeMux, changing every program that imports obs.
+//
+// One difference remains: github.com/google/pprof/profile keeps a
+// profile's default sample type when it writes a delta, which the
+// standard library's copy drops, so `go tool pprof` shows an allocs delta
+// as alloc_space here and as inuse_space against net/http/pprof. Pass
+// -sample_index explicitly to compare the two.
 func addPprof(mux *http.ServeMux) {
 	mux.HandleFunc("GET /debug/pprof/{$}", pprofIndex)
 	mux.HandleFunc("GET /debug/pprof/{name}", pprofProfile)

@@ -9,7 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -76,7 +76,8 @@ type Admin struct {
 	readinessTimeout time.Duration
 	srv              *http.Server
 	checks           []readinessCheck
-	shuttingDown     atomic.Bool // set by Drain's Stop: /readyz answers 503 from then on
+	shuttingDown     chan struct{} // closed by Drain's Stop: /readyz answers 503 from then on
+	shutdownOnce     sync.Once
 }
 
 type readinessCheck struct {
@@ -87,7 +88,7 @@ type readinessCheck struct {
 // NewAdmin returns a management server configured by opts that exposes
 // metrics on /metrics.
 func NewAdmin(opts *AdminOptions, metrics *Metrics) *Admin {
-	a := &Admin{addr: opts.Addr, readinessTimeout: opts.ReadinessTimeout}
+	a := &Admin{addr: opts.Addr, readinessTimeout: opts.ReadinessTimeout, shuttingDown: make(chan struct{})}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
 	mux.HandleFunc("GET /readyz", a.readyz)
@@ -113,11 +114,11 @@ func (a *Admin) AddReadinessCheck(name string, check func(ctx context.Context) e
 }
 
 func (a *Admin) readyz(w http.ResponseWriter, r *http.Request) {
-	if a.shuttingDown.Load() {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = io.WriteString(w, "shutting down\n")
+	select {
+	case <-a.shuttingDown:
+		writeShuttingDown(w)
 		return
+	default:
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), a.readinessTimeout)
 	defer cancel()
@@ -138,6 +139,9 @@ func (a *Admin) readyz(w http.ResponseWriter, r *http.Request) {
 			case err = <-results[i]:
 			case <-ctx.Done():
 				err = ctx.Err()
+			case <-a.shuttingDown: // the stop began while the checks ran
+				writeShuttingDown(w)
+				return
 			}
 		}
 		if err == nil {
@@ -162,6 +166,12 @@ func (a *Admin) readyz(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.WriteString(w, "ok\n")
 }
 
+func writeShuttingDown(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_, _ = io.WriteString(w, "shutting down\n")
+}
+
 // runCheck runs check, turning a panic into its failure.
 func runCheck(ctx context.Context, check func(ctx context.Context) error) (err error) {
 	defer func() {
@@ -174,6 +184,7 @@ func runCheck(ctx context.Context, check func(ctx context.Context) error) (err e
 
 // Drain returns the component that begins the stop. Run it last, so it
 // stops first: its Stop makes /readyz answer 503 "shutting down" at once,
+// including the probes still waiting on their checks,
 // then waits window, or until its context is done, while every other
 // component keeps serving, so load balancers take the process out of
 // rotation before it stops taking requests.
@@ -198,7 +209,7 @@ func (d *Drain) Start(ctx context.Context) error {
 
 // Stop reports the process not ready and waits the drain window.
 func (d *Drain) Stop(ctx context.Context) error {
-	d.admin.shuttingDown.Store(true)
+	d.admin.shutdownOnce.Do(func() { close(d.admin.shuttingDown) })
 	slog.InfoContext(ctx, "draining", "window", d.window.String())
 	t := time.NewTimer(d.window)
 	defer t.Stop()

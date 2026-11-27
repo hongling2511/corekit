@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -50,7 +51,10 @@ func demoChecks() ([]demoCheck, error) {
 		case "fail":
 			c.check = func(context.Context) error { return errors.New("demo check failed") }
 		case "hang": // ignores its context: only the server-side deadline ends the probe
-			c.check = func(context.Context) error { select {} }
+			c.check = func(ctx context.Context) error {
+				slog.InfoContext(ctx, "demo check running", "check", name)
+				select {}
+			}
 		case "panic":
 			c.check = func(context.Context) error { panic("demo check panic") }
 		}
