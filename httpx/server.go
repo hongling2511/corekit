@@ -37,11 +37,13 @@ type Server struct {
 // New returns a server configured by opts whose routes are declared by
 // routes. Every route, and the answer to an unmatched one, runs behind the
 // fixed middleware chain Recovery → Tracing → AccessLog → Metrics, which
-// cannot be turned off or reordered.
-func New(opts *Options, routes func(r gin.IRouter)) *Server {
+// cannot be turned off or reordered, and then behind the optional
+// middlewares, in order (see middleware.Registry).
+func New(opts *Options, routes func(r gin.IRouter), optional ...gin.HandlerFunc) *Server {
 	engine := gin.New()
 	metrics := obs.NewHTTPMetrics()
 	engine.Use(middleware.Recovery(Fail), middleware.Tracing(), middleware.AccessLog(), middleware.Metrics(metrics))
+	engine.Use(optional...)
 	// No automatic redirects (/users/ → /users, case or path fixes): such a
 	// path is unmatched and answers with the envelope like any other.
 	engine.RedirectTrailingSlash = false

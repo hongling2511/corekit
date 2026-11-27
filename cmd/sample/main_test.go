@@ -169,6 +169,17 @@ func TestConfigPrintShowsEffectiveConfig(t *testing.T) {
 		"http.tls.key_file":  "",
 		"token":              "",
 		"labels":             nil,
+		// No optional middleware is enabled; the built-ins' parameters have defaults.
+		"middleware.enabled":                []any{},
+		"middleware.cors.allow_origins":     []any{},
+		"middleware.cors.allow_methods":     []any{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"},
+		"middleware.cors.allow_headers":     []any{"Content-Type", "Authorization", "traceparent"},
+		"middleware.cors.expose_headers":    []any{"X-Trace-Id"},
+		"middleware.cors.allow_credentials": false,
+		"middleware.cors.max_age":           float64(0),
+		"middleware.timeout.duration":       float64(30 * time.Second),
+		"middleware.ratelimit.rate":         float64(100),
+		"middleware.ratelimit.burst":        float64(100),
 	}, got)
 }
 
