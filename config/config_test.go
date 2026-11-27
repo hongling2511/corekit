@@ -632,3 +632,86 @@ func TestLoadAppliesEnvToPointerBlocks(t *testing.T) {
 
 	assert.Equal(t, 7, opts.Block.Port)
 }
+
+type mapEntryOptions struct {
+	Entries map[string]item `mapstructure:"entries"`
+}
+
+func (o *mapEntryOptions) AddFlags(*pflag.FlagSet) {}
+func (o *mapEntryOptions) Complete() error         { return nil }
+func (o *mapEntryOptions) Validate() error         { return nil }
+
+func TestLoadRejectsNonMapValueForMapField(t *testing.T) {
+	// A map field takes only a mapping; the decoder would otherwise merge a
+	// list of maps into the map and drop unknown keys in its entries.
+	tests := []struct{ desc, file string }{
+		{"list of maps", "entries: [{foo: {name: valid}}]\n"},
+		{"list of maps with a typo", "entries: [{foo: {nmae: valid}}]\n"},
+		{"scalar", "entries: foo\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			err := load(t, &mapEntryOptions{}, writeFile(t, "config.yaml", tt.file))
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "key entries: expected a mapping")
+		})
+	}
+	t.Run("mapping is accepted", func(t *testing.T) {
+		opts := &mapEntryOptions{}
+
+		require.NoError(t, load(t, opts, writeFile(t, "config.yaml", "entries: {foo: {name: valid}}\n")))
+
+		assert.Equal(t, map[string]item{"foo": {Name: "valid"}}, opts.Entries)
+	})
+}
+
+type (
+	recursiveList []recursiveList
+	recursiveMap  map[string]recursiveMap
+	recursivePtr  *recursivePtr
+)
+
+type recursiveListOptions struct {
+	Tree recursiveList `mapstructure:"tree"`
+}
+
+func (o *recursiveListOptions) AddFlags(*pflag.FlagSet) {}
+func (o *recursiveListOptions) Complete() error         { return nil }
+func (o *recursiveListOptions) Validate() error         { return nil }
+
+type recursiveMapOptions struct {
+	Tree recursiveMap `mapstructure:"tree"`
+}
+
+func (o *recursiveMapOptions) AddFlags(*pflag.FlagSet) {}
+func (o *recursiveMapOptions) Complete() error         { return nil }
+func (o *recursiveMapOptions) Validate() error         { return nil }
+
+type recursivePtrOptions struct {
+	Tree recursivePtr `mapstructure:"tree"`
+}
+
+func (o *recursivePtrOptions) AddFlags(*pflag.FlagSet) {}
+func (o *recursivePtrOptions) Complete() error         { return nil }
+func (o *recursivePtrOptions) Validate() error         { return nil }
+
+func TestLoadRejectsRecursiveContainerTypes(t *testing.T) {
+	tests := []struct {
+		desc string
+		opts config.Options
+	}{
+		{"slice of itself", &recursiveListOptions{}},
+		{"map of itself", &recursiveMapOptions{}},
+		{"pointer to itself", &recursivePtrOptions{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			err := load(t, tt.opts, "")
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "tree")
+			assert.Contains(t, err.Error(), "recursive")
+		})
+	}
+}

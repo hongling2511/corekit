@@ -53,15 +53,21 @@ func tagParts(f reflect.StructField) (name string, opts []string) {
 
 // checkType rejects options types whose decoding the field enumeration does
 // not model: two fields with one key at the same level (viper fills both),
-// ",squash" on anything but a struct, and ",remain".
+// ",squash" on anything but a struct, ",remain", and a container type that
+// holds itself (type Tree []Tree), which has no struct to stop at.
 func checkType(t reflect.Type) error {
 	return checkTypeAt(t, "", map[reflect.Type]bool{})
 }
 
 func checkTypeAt(t reflect.Type, path string, seen map[reflect.Type]bool) error {
+	containers := map[reflect.Type]bool{}
 	for {
 		switch t.Kind() {
 		case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+			if containers[t] {
+				return fmt.Errorf("options type %s: key %s: recursive type is not supported", t, strings.TrimSuffix(path, "."))
+			}
+			containers[t] = true
 			t = t.Elem()
 			continue
 		}

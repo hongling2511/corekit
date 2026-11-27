@@ -38,7 +38,11 @@ func readFile(ctx context.Context, v *viper.Viper, path string, t reflect.Type) 
 		return fmt.Errorf("config file %s: %w", path, err)
 	}
 	tree := expanded.(map[string]any) // expand keeps a map a map
-	if unknown := checkTree(tree, t, ""); len(unknown) > 0 {
+	unknown, err := checkTree(tree, t, "")
+	if err != nil {
+		return fmt.Errorf("config file %s: %w", path, err)
+	}
+	if len(unknown) > 0 {
 		slices.Sort(unknown)
 		return fmt.Errorf("config file %s: unknown keys: %s", path, strings.Join(unknown, ", "))
 	}
@@ -52,8 +56,9 @@ func readFile(ctx context.Context, v *viper.Viper, path string, t reflect.Type) 
 // non-string keys turned into string-keyed maps, and every dotted key of a
 // map outside lists split into nested maps (so a map entry name cannot
 // contain "."). Inside list elements keys are kept whole, as viper keeps them.
-// A key set twice (server.port and server: {port}, or Port and port) is an
-// error.
+// A key set twice in the decoded tree (server.port and server: {port}, or
+// Port and port) is an error. Members a format collapses while decoding (a
+// JSON object naming one member twice keeps the last) never reach this check.
 func expand(raw any, path string, inList bool) (any, error) {
 	switch raw := raw.(type) {
 	case map[any]any:
@@ -119,57 +124,68 @@ func merge(dst map[string]any, key string, val any, path string) error {
 // checkTree returns the dotted path of every key in the configuration tree
 // that matches no field of type t. Map entry names are free; struct fields
 // inside map values, list elements and pointers are checked, and a scalar
-// field takes no keys below it. Interface fields take anything; other shape
+// field takes no keys below it. Interface fields take anything. A map field
+// takes only a mapping (or nothing): any other value, a list included, is an
+// error naming the key, since the decoder would merge a list of maps into it
+// and drop unknown keys. Other shape
 // mismatches are left to the decoder.
-func checkTree(tree any, t reflect.Type, path string) []string {
+func checkTree(tree any, t reflect.Type, path string) ([]string, error) {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	m, isMap := tree.(map[string]any)
+	var unknown []string
 	switch t.Kind() {
-	case reflect.Interface:
-		return nil
+	case reflect.Interface: // takes anything
 	case reflect.Struct:
 		if !isMap {
-			return nil
+			return nil, nil
 		}
 		byKey := map[string]field{}
 		for _, f := range structFields(t) {
 			byKey[f.key] = f
 		}
-		var unknown []string
 		for k, val := range m {
 			f, ok := byKey[k]
 			if !ok {
 				unknown = append(unknown, path+k)
 				continue
 			}
-			unknown = append(unknown, checkTree(val, f.typ, path+k+".")...)
+			u, err := checkTree(val, f.typ, path+k+".")
+			if err != nil {
+				return nil, err
+			}
+			unknown = append(unknown, u...)
 		}
-		return unknown
 	case reflect.Map:
-		var unknown []string
-		for k, val := range m {
-			unknown = append(unknown, checkTree(val, t.Elem(), path+k+".")...)
+		if !isMap && tree != nil {
+			return nil, fmt.Errorf("key %s: expected a mapping, got %T", strings.TrimSuffix(path, "."), tree)
 		}
-		return unknown
+		for k, val := range m {
+			u, err := checkTree(val, t.Elem(), path+k+".")
+			if err != nil {
+				return nil, err
+			}
+			unknown = append(unknown, u...)
+		}
 	case reflect.Slice, reflect.Array:
 		if isMap { // decoded as a one-element list
 			return checkTree(m, t.Elem(), path)
 		}
 		list, _ := tree.([]any)
-		var unknown []string
 		for i, val := range list {
-			unknown = append(unknown, checkTree(val, t.Elem(), path+strconv.Itoa(i)+".")...)
+			u, err := checkTree(val, t.Elem(), path+strconv.Itoa(i)+".")
+			if err != nil {
+				return nil, err
+			}
+			unknown = append(unknown, u...)
 		}
-		return unknown
 	default: // a scalar: any key below it is unknown
-		var unknown []string
 		for k := range m {
 			unknown = append(unknown, leaves(m[k], path+k)...)
 		}
-		return unknown
 	}
+	return unknown, nil
 }
 
 // leaves returns the dotted paths of the leaves below tree.
