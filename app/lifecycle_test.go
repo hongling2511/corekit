@@ -44,6 +44,7 @@ type fake struct {
 
 	start func(ctx context.Context) error // runs inside Start before blocking; a non-nil error is returned
 	early bool                            // Start returns nil at once
+	final error                           // returned by Start once it is told to stop
 	stop  func(ctx context.Context) error // replaces Stop's behaviour
 }
 
@@ -68,7 +69,7 @@ func (f *fake) Start(ctx context.Context) error {
 	case <-f.stopped:
 	}
 	f.ev.add("exit " + f.name)
-	return nil
+	return f.final
 }
 
 func (f *fake) Stop(ctx context.Context) error {
@@ -234,4 +235,63 @@ func TestFailureIsKeptWhenTheStopThenTimesOut(t *testing.T) {
 	err := result(t, done)
 	require.ErrorIs(t, err, boom)
 	assert.Contains(t, err.Error(), "stop timed out after 100ms; still running: [a]")
+}
+
+func TestErrorFromStartDuringShutdownIsReturned(t *testing.T) {
+	for _, trigger := range []string{"signal", "cancel"} {
+		t.Run(trigger, func(t *testing.T) {
+			ev := &events{}
+			a, b := newFake("a", ev), newFake("b", ev)
+			flush := errors.New("final flush failed")
+			b.final = flush
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			done := runAsync(ctx, 5*time.Second, a, b)
+			waitStarted(t, a, b)
+			if trigger == "signal" {
+				require.NoError(t, syscall.Kill(os.Getpid(), syscall.SIGTERM))
+			} else {
+				cancel()
+			}
+
+			err := result(t, done)
+			require.ErrorIs(t, err, flush)
+			assert.Contains(t, err.Error(), "component b")
+			assert.Equal(t, []string{"stop b", "exit b", "stop a", "exit a"}, ev.get(), "a still stops")
+		})
+	}
+}
+
+func TestContextCanceledFromStartDuringShutdownIsClean(t *testing.T) {
+	ev := &events{}
+	a := newFake("a", ev)
+	a.final = context.Canceled
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := runAsync(ctx, 5*time.Second, a)
+	waitStarted(t, a)
+	cancel()
+
+	require.NoError(t, result(t, done))
+}
+
+// sliceErr is an error type whose values cannot be compared with ==.
+type sliceErr []string
+
+func (e sliceErr) Error() string { return "custom cause" }
+
+func TestUncomparableCancelCauseWithStopTimeout(t *testing.T) {
+	ev := &events{}
+	a := newFake("a", ev)
+	a.stop = func(context.Context) error { select {} } // ignores its deadline
+	ctx, cancel := context.WithCancelCause(context.Background())
+
+	done := runAsync(ctx, 100*time.Millisecond, a)
+	waitStarted(t, a)
+	cancel(sliceErr{"x"})
+
+	err := result(t, done)
+	require.Error(t, err)
+	assert.Equal(t, "stop timed out after 100ms; still running: [a]", err.Error(), "the caller's cause is not a component failure")
 }

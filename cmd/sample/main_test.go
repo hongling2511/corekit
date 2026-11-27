@@ -161,8 +161,6 @@ func TestConfigPrintShowsEffectiveConfig(t *testing.T) {
 		"log.output": "stdout",
 		// time.Duration prints as its underlying nanoseconds.
 		"shutdown.timeout": float64(30 * time.Second),
-		"demo.fail":        float64(0),
-		"demo.hang":        false,
 		"token":            "",
 	}, got)
 }

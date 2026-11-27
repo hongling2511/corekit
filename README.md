@@ -29,6 +29,8 @@ Heavy dependencies such as gin, gorm, go-redis, casbin and asynq belong to the c
 | `make run` | `go run ./cmd/sample serve`: the sample service with placeholder components, until SIGINT or SIGTERM |
 | `make docker` | no-op until there is an image to build |
 
+`serve` stops its components in reverse start order within `shutdown.timeout` (default `30s`; `config print` and the start-up log show durations in nanoseconds, such as `30000000000`). To demonstrate the failure paths, its placeholder components read two variables that only `serve` uses: `SAMPLE_DEMO_FAIL=200ms` makes one fail after that long, and `SAMPLE_DEMO_HANG=true` makes one hang when stopped.
+
 The Go toolchain is pinned by the `toolchain` line in `go.mod`. Lint tools are pinned in the `Makefile` and installed into `./bin` on first use, so local runs and CI use the same versions.
 
 ## CI

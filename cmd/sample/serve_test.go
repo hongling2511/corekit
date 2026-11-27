@@ -51,11 +51,12 @@ type serving struct {
 	seen   []logLine
 }
 
-func startServe(t *testing.T, args ...string) *serving {
+// startServe starts `sample serve` with args and a clean environment plus env.
+func startServe(t *testing.T, env []string, args ...string) *serving {
 	t.Helper()
 	cmd := exec.Command(sampleBinary(t), append([]string{"serve"}, args...)...)
 	cmd.Dir = t.TempDir()
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}
+	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}, env...)
 	stdout, err := cmd.StdoutPipe()
 	require.NoError(t, err)
 	s := &serving{cmd: cmd, lines: make(chan logLine, 100), waited: make(chan error, 1), stderr: &lockedBuffer{}}
@@ -139,7 +140,7 @@ func (s *serving) exit(t *testing.T) (code int, events []string) {
 func TestServeStopsInReverseOrderOnSignal(t *testing.T) {
 	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
 		t.Run(sig.String(), func(t *testing.T) {
-			s := startServe(t)
+			s := startServe(t, nil)
 			s.waitFor(t, "component starting", "second")
 
 			require.NoError(t, s.cmd.Process.Signal(sig))
@@ -159,7 +160,7 @@ func TestServeStopsInReverseOrderOnSignal(t *testing.T) {
 }
 
 func TestServeExitsWhenAComponentHangsPastTheShutdownTimeout(t *testing.T) {
-	s := startServe(t, "--shutdown.timeout=200ms", "--demo.hang")
+	s := startServe(t, []string{"SAMPLE_DEMO_HANG=true"}, "--shutdown.timeout=200ms")
 	s.waitFor(t, "component starting", "second")
 
 	began := time.Now()
@@ -177,7 +178,7 @@ func TestServeExitsWhenAComponentHangsPastTheShutdownTimeout(t *testing.T) {
 }
 
 func TestServeStopsTheOthersWhenAComponentFails(t *testing.T) {
-	s := startServe(t, "--demo.fail=100ms")
+	s := startServe(t, []string{"SAMPLE_DEMO_FAIL=100ms"})
 
 	code, events := s.exit(t)
 
@@ -200,7 +201,7 @@ func TestShutdownTimeoutMustBePositive(t *testing.T) {
 }
 
 func TestServeSecondSignalEndsTheProcessAtOnce(t *testing.T) {
-	s := startServe(t, "--shutdown.timeout=1m", "--demo.hang")
+	s := startServe(t, []string{"SAMPLE_DEMO_HANG=true"}, "--shutdown.timeout=1m")
 	s.waitFor(t, "component starting", "second")
 
 	require.NoError(t, s.cmd.Process.Signal(syscall.SIGTERM))
@@ -213,9 +214,26 @@ func TestServeSecondSignalEndsTheProcessAtOnce(t *testing.T) {
 	assert.Less(t, time.Since(began), 5*time.Second)
 }
 
-func TestNegativeDemoFailIsRejected(t *testing.T) {
-	r := run(t, nil, "serve", "--demo.fail=-1s")
+func TestInvalidDemoSettingsAreRejected(t *testing.T) {
+	for _, env := range []string{"SAMPLE_DEMO_FAIL=-1s", "SAMPLE_DEMO_FAIL=soon", "SAMPLE_DEMO_HANG=maybe"} {
+		t.Run(env, func(t *testing.T) {
+			r := run(t, []string{env}, "serve")
 
-	assert.NotEqual(t, 0, r.code)
-	assert.Contains(t, r.stderr, "demo.fail")
+			assert.NotEqual(t, 0, r.code)
+			name, _, _ := strings.Cut(env, "=")
+			assert.Contains(t, r.stderr, name)
+		})
+	}
+}
+
+func TestDemoSettingsDoNotAffectOperationsCommands(t *testing.T) {
+	// The demo knobs belong to serve only: not flags, not configuration keys.
+	for _, args := range [][]string{{"version", "--help"}, {"config", "print", "--help"}} {
+		r := run(t, nil, args...)
+		require.Equal(t, 0, r.code, r.stderr)
+		assert.NotContains(t, r.stdout, "demo", args)
+	}
+	assert.NotContains(t, printedConfig(t, nil), "demo.fail")
+	r := run(t, []string{"SAMPLE_DEMO_FAIL=-1s"}, "version")
+	assert.Equal(t, 0, r.code, r.stderr)
 }

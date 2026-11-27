@@ -39,10 +39,13 @@ type Component interface {
 // once. A component whose Start returns because a component stopped before
 // it has gone counts as failed.
 //
+// Start returning nil or context.Canceled after its component was told to
+// stop is a clean stop; any other error, including one reported while
+// stopping (a final flush that failed), is a failure.
+//
 // It returns nil after a clean shutdown on cancellation or a signal,
-// otherwise the failure of the first failing component joined with the
-// errors from stopping: a Stop error and a stop timeout make the shutdown
-// unclean.
+// otherwise the components' failures joined with the errors from stopping:
+// a Stop error and a stop timeout also make the shutdown unclean.
 func RunComponents(ctx context.Context, timeout time.Duration, components ...Component) error {
 	sigCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
@@ -63,14 +66,16 @@ func RunComponents(ctx context.Context, timeout time.Duration, components ...Com
 		g.Go(func() error {
 			defer close(r.exited)
 			err := c.Start(cctx)
-			if r.stopping.Load() {
-				return nil // asked to stop
-			}
-			if err == nil {
+			stopping := r.stopping.Load()
+			switch {
+			case stopping && (err == nil || errors.Is(err, context.Canceled)):
+				return nil // the expected end of a stop
+			case err == nil:
 				err = errors.New("exited unexpectedly")
 			}
 			slog.ErrorContext(ctx, "component failed", "component", c.Name(), "error", err)
-			return fmt.Errorf("component %s: %w", c.Name(), err)
+			r.err = fmt.Errorf("component %s: %w", c.Name(), err)
+			return r.err
 		})
 	}
 
@@ -95,16 +100,20 @@ func RunComponents(ctx context.Context, timeout time.Duration, components ...Com
 			stopErrs = append(stopErrs, fmt.Errorf("stop timed out after %s; still running: %v", timeout, left))
 		}
 	}
-	// Every Start has returned unless the stop timed out. Then a component
-	// failure that began the shutdown is the group context's cause; it
-	// differs from the signal context's cause only in that case.
-	var startErr error
 	if !timedOut {
-		startErr = g.Wait()
-	} else if cause := context.Cause(gctx); cause != context.Cause(sigCtx) {
-		startErr = cause
+		_ = g.Wait() // every Start has returned; their failures are in r.err
 	}
-	return errors.Join(append([]error{startErr}, stopErrs...)...)
+	var errs []error
+	for _, r := range running {
+		select {
+		case <-r.exited:
+			if r.err != nil {
+				errs = append(errs, r.err)
+			}
+		default: // abandoned by the timeout
+		}
+	}
+	return errors.Join(append(errs, stopErrs...)...)
 }
 
 // stillRunning returns the names of the components whose Start has not
@@ -125,6 +134,7 @@ type runningComponent struct {
 	Component
 	cancel   context.CancelFunc
 	exited   chan struct{} // closed when Start returns
+	err      error         // Start's failure; read only after exited is closed
 	stopping atomic.Bool   // set before Stop is called; Start returning after it is not a failure
 }
 
@@ -180,7 +190,8 @@ func NewShutdownOptions() *ShutdownOptions {
 
 // AddFlags declares the block's flags on fs.
 func (o *ShutdownOptions) AddFlags(fs *pflag.FlagSet) {
-	fs.DurationVar(&o.Timeout, "shutdown.timeout", o.Timeout, "upper bound of the graceful stop, such as 30s")
+	fs.DurationVar(&o.Timeout, "shutdown.timeout", o.Timeout,
+		"upper bound of the graceful stop, such as 30s (shown in nanoseconds in config print and the start-up log)")
 }
 
 // Complete does nothing; the block has no derived fields.

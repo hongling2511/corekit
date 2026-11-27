@@ -4,43 +4,53 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"time"
-
-	"github.com/spf13/pflag"
 
 	"github.com/hongling2511/corekit/app"
 )
 
-// demoOptions are knobs of the placeholder components that `serve` runs
-// until real services exist; they demonstrate the shutdown behaviour.
-type demoOptions struct {
-	Fail time.Duration `mapstructure:"fail"` // the second component fails this long after starting; 0 never
-	Hang bool          `mapstructure:"hang"` // the second component's Stop ignores its deadline
-}
-
-func (o *demoOptions) AddFlags(fs *pflag.FlagSet) {
-	fs.DurationVar(&o.Fail, "demo.fail", o.Fail, "placeholder component fails this long after starting (0: never)")
-	fs.BoolVar(&o.Hang, "demo.hang", o.Hang, "placeholder component hangs when stopped")
-}
-
-func (o *demoOptions) Validate() error {
-	if o.Fail < 0 {
-		return fmt.Errorf("demo.fail: invalid value %s, want 0 or a positive duration", o.Fail)
-	}
-	return nil
-}
+// Until real services exist, `serve` runs placeholder components. Two
+// environment variables, read by serve alone, make them demonstrate the
+// shutdown behaviour; they are not configuration keys.
+const (
+	demoFailEnv = "SAMPLE_DEMO_FAIL" // a duration: the second component fails this long after starting
+	demoHangEnv = "SAMPLE_DEMO_HANG" // true: the second component's Stop never returns
+)
 
 func serveCommand(opts *Options) app.Command {
 	return app.Command{
 		Name:  "serve",
 		Short: "Run the service until SIGINT or SIGTERM",
 		Run: func(ctx context.Context) error {
-			return app.RunComponents(ctx, opts.Shutdown.Timeout,
-				&placeholder{name: "first"},
-				&placeholder{name: "second", fail: opts.Demo.Fail, hang: opts.Demo.Hang},
-			)
+			second, err := demoPlaceholder("second")
+			if err != nil {
+				return err
+			}
+			return app.RunComponents(ctx, opts.Shutdown.Timeout, &placeholder{name: "first"}, second)
 		},
 	}
+}
+
+// demoPlaceholder returns a placeholder configured by the demo variables.
+func demoPlaceholder(name string) (*placeholder, error) {
+	p := &placeholder{name: name}
+	if v := os.Getenv(demoFailEnv); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return nil, fmt.Errorf("%s: invalid value %q, want a positive duration", demoFailEnv, v)
+		}
+		p.fail = d
+	}
+	if v := os.Getenv(demoHangEnv); v != "" {
+		hang, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("%s: invalid value %q, want true or false", demoHangEnv, v)
+		}
+		p.hang = hang
+	}
+	return p, nil
 }
 
 // placeholder is a component that does nothing until it is stopped.
