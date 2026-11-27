@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/gin-gonic/gin"
 	"github.com/spf13/pflag"
 
 	"github.com/hongling2511/corekit/app"
@@ -53,6 +54,8 @@ func (o *Options) Validate() error {
 func (o *Options) Logging() *log.Options { return &o.Log }
 
 func main() {
+	// gin's debug mode would print route tables to stdout, where the JSON logs go.
+	gin.SetMode(gin.ReleaseMode)
 	opts := newOptions()
 	os.Exit(app.New("sample", opts, serveCommand(opts)).Run(context.Background(), os.Args[1:]))
 }

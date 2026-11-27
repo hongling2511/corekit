@@ -8,4 +8,5 @@
 | 100004 | 403 | 7 | permission denied |
 | 100005 | 500 | 13 | database error |
 | 100006 | 404 | 5 | route not found |
+| 100007 | 405 | 2 | method not allowed |
 | 110001 | 404 | 5 | user not found |

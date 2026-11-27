@@ -6,6 +6,10 @@
 // gin.Context stops at the handler: a handler binds the request, calls the
 // service layer with the request context (c.Request.Context()) and plain
 // structs, and answers with OK, List or Fail.
+//
+// gin's mode is process-wide and left to the program: in its default debug
+// mode gin prints route tables and warnings to stdout, so a program that
+// logs JSON to stdout calls gin.SetMode(gin.ReleaseMode) in main.
 package httpx
 
 import (
@@ -32,13 +36,13 @@ type Server struct {
 // fixed middleware chain Recovery → Tracing → AccessLog → Metrics, which
 // cannot be turned off or reordered.
 func New(opts *Options, routes func(r gin.IRouter)) *Server {
-	// gin's debug mode prints to stdout; set once for the process.
-	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
 	// Metrics has no recorder yet: the measurements are dropped until the
 	// metrics exposure lands.
 	engine.Use(middleware.Recovery(Fail), middleware.Tracing(), middleware.AccessLog(), middleware.Metrics(nil))
+	engine.HandleMethodNotAllowed = true
 	engine.NoRoute(func(c *gin.Context) { Fail(c, errx.ErrRouteNotFound) })
+	engine.NoMethod(func(c *gin.Context) { Fail(c, errx.ErrMethodNotAllowed) })
 	routes(engine)
 	return &Server{
 		opts: *opts,
@@ -61,10 +65,10 @@ func (s *Server) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	slog.InfoContext(ctx, "http server listening", "addr", ln.Addr().String(), "tls", s.opts.TLS.CertFile != "")
+	slog.InfoContext(ctx, "http server listening", "addr", ln.Addr().String(), "tls", s.opts.TLS.Enabled())
 	served := make(chan error, 1)
 	go func() {
-		if s.opts.TLS.CertFile != "" {
+		if s.opts.TLS.Enabled() {
 			served <- s.srv.ServeTLS(ln, s.opts.TLS.CertFile, s.opts.TLS.KeyFile)
 			return
 		}

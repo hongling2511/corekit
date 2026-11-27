@@ -138,16 +138,23 @@ func TestBindFailureAnswersWithTheBindErrorEnvelope(t *testing.T) {
 	}
 }
 
-func TestUnmatchedRouteAnswersWithTheNotFoundEnvelope(t *testing.T) {
+func TestUnmatchedRouteAnswersWithTheFailureEnvelope(t *testing.T) {
 	_, base := startHTTP(t, nil)
 
-	for _, tt := range []struct{ method, path string }{{http.MethodGet, "/nope"}, {http.MethodDelete, "/users"}} {
+	for _, tt := range []struct {
+		method, path string
+		status, code int
+		message      string
+	}{
+		{http.MethodGet, "/nope", http.StatusNotFound, 100006, "route not found"},
+		{http.MethodDelete, "/users", http.StatusMethodNotAllowed, 100007, "method not allowed"},
+	} {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
 			r := request(t, tt.method, base+tt.path, "")
 
-			assert.Equal(t, http.StatusNotFound, r.status)
-			assert.Equal(t, 100006, r.body.Code)
-			assert.Equal(t, "route not found", r.body.Message)
+			assert.Equal(t, tt.status, r.status)
+			assert.Equal(t, tt.code, r.body.Code)
+			assert.Equal(t, tt.message, r.body.Message)
 			assert.Equal(t, "null", string(r.body.Data))
 			assert.NotEmpty(t, r.body.TraceID)
 			assert.Equal(t, r.body.TraceID, r.header.Get("X-Trace-Id"))
@@ -402,4 +409,17 @@ func selfSignedCert(t *testing.T) (certFile, keyFile string, pool *x509.CertPool
 	pool = x509.NewCertPool()
 	pool.AddCert(cert)
 	return certFile, keyFile, pool
+}
+
+func TestStdoutHoldsOnlyJSONLogLines(t *testing.T) {
+	s, base := startHTTP(t, nil)
+	r := request(t, http.MethodGet, base+"/users", "")
+	requestLogs(t, s, r.body.TraceID)
+
+	require.NoError(t, s.cmd.Process.Signal(syscall.SIGTERM))
+	_, _ = s.exit(t)
+
+	for _, l := range s.seen {
+		assert.True(t, json.Valid([]byte(l.raw)), "not a JSON log line: %q", l.raw)
+	}
 }

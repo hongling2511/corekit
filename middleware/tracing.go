@@ -28,7 +28,11 @@ func Tracing() gin.HandlerFunc {
 	propagator := propagation.TraceContext{}
 	return func(c *gin.Context) {
 		ctx := propagator.Extract(c.Request.Context(), propagation.HeaderCarrier(c.Request.Header))
-		ctx, span := tracer.Start(ctx, c.Request.Method+" "+c.FullPath(), trace.WithSpanKind(trace.SpanKindServer))
+		name := c.Request.Method // an unmatched route has no route template
+		if route := c.FullPath(); route != "" {
+			name += " " + route
+		}
+		ctx, span := tracer.Start(ctx, name, trace.WithSpanKind(trace.SpanKindServer))
 		defer span.End()
 		traceID := span.SpanContext().TraceID().String()
 		c.Request = c.Request.WithContext(log.WithTraceID(ctx, traceID))

@@ -30,6 +30,9 @@ type TLSOptions struct {
 	KeyFile  string `mapstructure:"key_file"`  // PEM private key
 }
 
+// Enabled reports whether the server terminates TLS itself.
+func (o TLSOptions) Enabled() bool { return o.CertFile != "" }
+
 // NewOptions returns the default HTTP options: :8080, 30s read and write
 // timeouts, 120s idle timeout, no TLS.
 func NewOptions() *Options {

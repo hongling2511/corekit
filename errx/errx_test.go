@@ -75,6 +75,7 @@ func TestLibraryCodes(t *testing.T) {
 		{errx.ErrPermissionDenied, 100004, http.StatusForbidden},
 		{errx.ErrDatabase, 100005, http.StatusInternalServerError},
 		{errx.ErrRouteNotFound, 100006, http.StatusNotFound},
+		{errx.ErrMethodNotAllowed, 100007, http.StatusMethodNotAllowed},
 	}
 	for _, tt := range tests {
 		t.Run(tt.code.Message(), func(t *testing.T) {
