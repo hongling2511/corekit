@@ -73,10 +73,8 @@ type Registry struct {
 func NewRegistry(opts *Options) *Registry {
 	r := &Registry{opts: opts, factories: map[string]Factory{}}
 	r.Register("cors", func(FailFunc) gin.HandlerFunc { return CORS(opts.CORS) })
-	r.Register("timeout", func(fail FailFunc) gin.HandlerFunc { return Timeout(opts.Timeout.Duration, fail) })
-	r.Register("ratelimit", func(fail FailFunc) gin.HandlerFunc {
-		return RateLimit(opts.RateLimit.Rate, opts.RateLimit.Burst, fail)
-	})
+	r.Register("timeout", func(fail FailFunc) gin.HandlerFunc { return Timeout(opts.Timeout, fail) })
+	r.Register("ratelimit", func(fail FailFunc) gin.HandlerFunc { return RateLimit(opts.RateLimit, fail) })
 	return r
 }
 

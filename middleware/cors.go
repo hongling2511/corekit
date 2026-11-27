@@ -55,7 +55,9 @@ func (o *CORSOptions) validate() []error {
 // CORS answers cross-origin requests from the allowed origins: it adds the
 // CORS headers to every response to such a request and answers a preflight
 // (OPTIONS with Access-Control-Request-Method) itself with 204. A request
-// from another origin is served without CORS headers.
+// from another origin is served without CORS headers. With "*" the
+// request's own origin is echoed (with Vary: Origin), so credentials stay
+// possible for listed origins. max_age is sent in whole seconds.
 func CORS(o CORSOptions) gin.HandlerFunc {
 	anyOrigin := slices.Contains(o.AllowOrigins, "*")
 	methods := strings.Join(o.AllowMethods, ", ")

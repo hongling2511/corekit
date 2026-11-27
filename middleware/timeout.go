@@ -31,19 +31,21 @@ func (o *TimeoutOptions) validate() []error {
 	return nil
 }
 
-// Timeout gives the rest of the chain a request context that expires after
-// d. Handlers stop work through that context; when the deadline passes
-// before anything is written, the request is answered by fail with
-// errx.ErrTimeout. A handler that ignores its context is not interrupted,
-// and a response it has already started is left as it is.
-func Timeout(d time.Duration, fail FailFunc) gin.HandlerFunc {
+// Timeout gives the rest of the chain a request context
+// (c.Request.Context()) that expires after o.Duration. Handlers stop work
+// through that context; when the deadline passes before anything is written,
+// the request is answered by fail with errx.ErrRequestTimeout. A handler
+// that ignores its context is not interrupted, and a response it has
+// already started is left as it is.
+func Timeout(o TimeoutOptions, fail FailFunc) gin.HandlerFunc {
+	d := o.Duration
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), d)
 		defer cancel()
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 		if !c.Writer.Written() && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			fail(c, errx.ErrTimeout.Wrap(ctx.Err(), fmt.Sprintf("handling took longer than %s", d)))
+			fail(c, errx.ErrRequestTimeout.Wrap(ctx.Err(), fmt.Sprintf("handling took longer than %s", d)))
 		}
 	}
 }

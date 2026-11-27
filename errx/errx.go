@@ -30,7 +30,7 @@ var (
 	ErrDatabase         = register(100005, http.StatusInternalServerError, "database error")
 	ErrRouteNotFound    = register(100006, http.StatusNotFound, "route not found")
 	ErrMethodNotAllowed = register(100007, http.StatusMethodNotAllowed, "method not allowed")
-	ErrTimeout          = register(100008, http.StatusGatewayTimeout, "request timed out")
+	ErrRequestTimeout   = register(100008, http.StatusGatewayTimeout, "request timed out")
 	ErrTooManyRequests  = register(100009, http.StatusTooManyRequests, "too many requests")
 )
 

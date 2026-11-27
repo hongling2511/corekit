@@ -76,17 +76,22 @@ func TestCORSIsAppliedOnlyWhenEnabled(t *testing.T) {
 
 func TestTimeoutAnswersWithTheTimeoutEnvelope(t *testing.T) {
 	s, base := startHTTP(t, demoRoutes, "--middleware.enabled=timeout", "--middleware.timeout.duration=100ms")
+	// The handler stops on its context: by failing with the deadline error, as
+	// a call into a dependency would, or by returning without an answer.
+	for _, query := range []string{"wait=5s", "wait=5s&on_deadline=return"} {
+		t.Run(query, func(t *testing.T) {
+			r := request(t, http.MethodGet, base+"/demo/slow?"+query, "")
 
-	r := request(t, http.MethodGet, base+"/demo/slow?wait=5s", "")
-
-	assert.Equal(t, http.StatusGatewayTimeout, r.status)
-	assert.Equal(t, 100008, r.body.Code)
-	assert.Equal(t, "request timed out", r.body.Message)
-	assert.Equal(t, "null", string(r.body.Data))
-	require.NotEmpty(t, r.body.TraceID)
-	assert.Equal(t, r.body.TraceID, r.header.Get("X-Trace-Id"))
-	logs := requestLogs(t, s, r.body.TraceID, "http request")
-	assert.Equal(t, http.StatusGatewayTimeout, logs[len(logs)-1].Status, "the fixed chain sees the timeout answer")
+			assert.Equal(t, http.StatusGatewayTimeout, r.status)
+			assert.Equal(t, 100008, r.body.Code)
+			assert.Equal(t, "request timed out", r.body.Message)
+			assert.Equal(t, "null", string(r.body.Data))
+			require.NotEmpty(t, r.body.TraceID)
+			assert.Equal(t, r.body.TraceID, r.header.Get("X-Trace-Id"))
+			logs := requestLogs(t, s, r.body.TraceID, "http request")
+			assert.Equal(t, http.StatusGatewayTimeout, logs[len(logs)-1].Status, "the fixed chain sees the timeout answer")
+		})
+	}
 
 	fast := request(t, http.MethodGet, base+"/demo/slow?wait=1ms", "")
 	assert.Equal(t, http.StatusOK, fast.status)

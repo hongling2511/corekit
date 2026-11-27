@@ -37,15 +37,15 @@ func (o *RateLimitOptions) validate() []error {
 	return errs
 }
 
-// RateLimit admits requests from a token bucket of burst tokens that refills
-// rate tokens per second, one bucket for the whole server (in-process, not
+// RateLimit admits requests from a token bucket of o.Burst tokens that
+// refills o.Rate tokens per second, one bucket for the whole server (in-process, not
 // shared between replicas). A request finding the bucket empty is answered
 // by fail with errx.ErrTooManyRequests.
-func RateLimit(rate float64, burst int, fail FailFunc) gin.HandlerFunc {
-	b := &bucket{rate: rate, burst: float64(burst), tokens: float64(burst), last: time.Now()}
+func RateLimit(o RateLimitOptions, fail FailFunc) gin.HandlerFunc {
+	b := &bucket{rate: o.Rate, burst: float64(o.Burst), tokens: float64(o.Burst), last: time.Now()}
 	return func(c *gin.Context) {
 		if !b.take(time.Now()) {
-			fail(c, errx.ErrTooManyRequests.Wrap(nil, "rate limit exceeded"))
+			fail(c, errx.ErrTooManyRequests)
 			return
 		}
 		c.Next()
